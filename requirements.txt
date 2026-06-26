@@ -1,0 +1,17 @@
+tensorflow==2.15.1
+keras==2.15.0
+numpy==1.25.1
+pandas==2.0.3
+scipy==1.11.1
+scikit-learn==1.5.2
+matplotlib==3.10.8
+seaborn==0.13.2
+pingouin==0.5.5
+statsmodels==0.14.6
+shap==0.51.0
+dacite==1.9.2
+xlrd==2.0.1
+joblib==1.2.0
+openpyxl~=3.1.5
+lxml~=5.2.2
+
