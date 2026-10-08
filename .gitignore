@@ -33,3 +33,20 @@ logs/
 .DS_Store
 Thumbs.db
 desktop.ini
+
+# Personal planning notes (Claude Code)
+
+.claude-local/
+
+# Participant data that must not be committed
+
+data/raw/
+data/prepared_gies2024/
+data/prepared/
+data/zipped/
+
+# Generated outputs (inventory plots and CSVs, run results)
+
+outputs/
+/data/prepared/
+/data/raw/
