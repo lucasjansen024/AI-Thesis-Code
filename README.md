@@ -6,6 +6,10 @@ This repository contains the code and reproducibility materials for the master's
 
 The study evaluates whether wearable-based VO2 prediction generalizes across cycling protocols with different temporal structures. A Temporal Convolutional Network (TCN) and a Gated Recurrent Unit (GRU) network were compared using leave-one-subject-out cross-validation.
 
+## Code attribution
+
+Big parts of this repository are based on code originally developed by [Gies den Broeder](https://github.com/GEESEE) as part of his related work on wearable-based VO2 prediction. I adapted and extended this code to work with the dataset and analyses used in this thesis.
+
 ## Repository structure
 
 AI Thesis Code Folder/ 
@@ -142,6 +146,8 @@ Lucas Jansen
 Master of Science in Artificial Intelligence
 Vrije Universiteit Amsterdam
 2026
+
+@
 
 ## Citation
 
