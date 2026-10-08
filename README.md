@@ -8,7 +8,7 @@ The study evaluates whether wearable-based VO2 prediction generalizes across cyc
 
 ## Code attribution
 
-Big parts of this repository are based on code originally developed by [Gies den Broeder](https://github.com/GEESEE) as part of his related work on wearable-based VO2 prediction. I adapted and extended this code to work with the dataset and analyses used in this thesis.
+Big parts of this repository are based on code originally developed by [Gies den Broeder](https://github.com/GEESEEE) as part of his related work on wearable-based VO2 prediction. I adapted and extended this code to work with the dataset and analyses used in this thesis.
 
 ## Repository structure
 
