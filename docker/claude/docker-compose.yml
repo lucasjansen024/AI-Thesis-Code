@@ -1,0 +1,68 @@
+# Example Docker Compose for adding Claude Code to a project.
+#
+# Copy this file to docker/claude/docker-compose.yml in your project
+# and adjust the volume mounts below.
+
+services:
+  claude:
+    image: claude-local
+    stdin_open: true
+    tty: true
+    working_dir: /workspace
+    # Root filesystem is immutable. Only the explicit volumes and tmpfs
+    # paths below are writable — anything else Claude tries to modify
+    # (binaries, /etc, /opt/claude-config, /usr) fails with EROFS.
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /var/tmp
+    # Drop every Linux capability. Claude does no privileged operation —
+    # no binding low ports, no chown, no raw sockets, no mount.
+    cap_drop:
+      - ALL
+    # Block setuid escalation: a setuid binary that somehow slipped into
+    # the image cannot gain privileges.
+    security_opt:
+      - no-new-privileges:true
+    # Resource ceilings. Prevent runaway loops or fork-bombs from
+    # affecting the host. Tune to fit your workload.
+    pids_limit: 512
+    mem_limit: 4g
+    memswap_limit: 4g
+    # Optional per-developer Context7 API key (higher docs-API rate
+    # limits — the anonymous tier is shared per IP). Compose reads the
+    # value from docker/claude/.env on the HOST (auto-loaded from the
+    # compose file's directory); create it from .env and add it
+    # to your project's .gitignore — never commit a real key. Unset →
+    # empty → the context7 MCP server uses the anonymous tier.
+    # Note: the env var is readable from inside the session, so use a
+    # free personal key, not a shared/paid org key.
+    environment:
+      - CONTEXT7_API_KEY=${CONTEXT7_API_KEY:-}
+    volumes:
+      # --- Developer state (persists login, history, downloads) ---
+      # Named volume managed by Docker. Survives `docker compose down`;
+      # wiped by `docker compose down -v`.
+      - claude-dev-state:/home/claude
+
+      # --- Project source (read-write, Claude can edit) ---
+      - ../../:/workspace
+
+      # --- Explicitly removed (secrets, keys) ---
+      # Files — mask with /dev/null
+      - /dev/null:/workspace/.env:ro
+
+      # Directories — mount empty read-only tmpfs
+      - type: tmpfs
+        target: /workspace/docker
+        read_only: true
+
+#      # --- Read-only references (Claude can read, not edit) ---
+#      # Dependencies and infrastructure that Claude should be able to
+#      # inspect but never modify directly.
+#      - ../../vendor:/workspace/vendor:ro
+#      - ../../node_modules:/workspace/node_modules:ro
+
+
+volumes:
+  claude-dev-state:

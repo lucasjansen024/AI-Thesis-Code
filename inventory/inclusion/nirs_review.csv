@@ -1,0 +1,13 @@
+visit_id,unit,sensor_group,valid,note
+G07_Ramp,visit,NIRS,true,dev + Lucas 8 Oct 2026: NIRS usable (visit stays excluded: no HR and no Tymewear)
+G08_Easy,rep1,NIRS,false,dev NIRS review 8 Oct 2026: unusable (Gies annotation agrees)
+G08_Easy,rep2,NIRS,false,dev NIRS review 8 Oct 2026: unusable (Gies annotation agrees)
+G07_Hard,rep2,NIRS,false,dev NIRS review 8 Oct 2026: unusable (Gies annotation agrees)
+G07_Medium,rep1,NIRS,false,dev NIRS review 8 Oct 2026: warm-up TSI artifact (~150-280 s) lies in the context of rep 1's first targets
+G07_Medium,rep2,NIRS,true,dev NIRS review 8 Oct 2026: exercise NIRS clean; Gies annotation excluded the visit
+G11_Easy,rep1,NIRS,true,dev NIRS review 8 Oct 2026: no problem seen; Gies annotation excluded it
+G11_Easy,rep2,NIRS,true,dev NIRS review 8 Oct 2026: no problem seen; Gies annotation excluded it
+G11_Hard,rep1,NIRS,true,dev NIRS review 8 Oct 2026: no problem seen
+G11_Hard,rep2,NIRS,true,dev NIRS review 8 Oct 2026: no problem seen; Gies annotation excluded it
+G11_Ramp,visit,NIRS,true,dev NIRS review 8 Oct 2026: just noisy; Gies annotation excluded it
+G15_Ramp,visit,NIRS,true,dev NIRS review 8 Oct 2026: fit factor drops towards the end; whole ramp kept (no partial cut)
