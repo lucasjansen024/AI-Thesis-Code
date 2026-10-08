@@ -1,0 +1,23 @@
+# Aim 1 pipeline (`pipeline/`, plus `inventory/` for loading raw data). One venv; legacy requirements.txt (TF 2.15) is separate.
+#
+# TO PIN: these are the packages, not yet the exact versions. Replace each line with the version from
+# `pip freeze` in the project venv (torch there: 2.14.1+xpu) and commit the pinned file.
+#
+# torch: Intel Arc (B580) XPU wheel from the XPU index:
+#   pip install torch==2.14.1+xpu --index-url https://download.pytorch.org/whl/xpu
+# CUDA laptop (A500): install the CUDA wheel of the same torch version instead, from
+#   https://download.pytorch.org/whl/<cuda tag>   (tag as listed on pytorch.org for that version)
+# and keep everything below unchanged.
+--extra-index-url https://download.pytorch.org/whl/xpu
+torch==2.14.1+xpu
+numpy
+pandas
+pyarrow
+# raw-data loading through inventory/ (CPET/NIRS .xlsx, Fitdays old-format .xls)
+openpyxl
+xlrd
+# evaluation (slice 8) and the legacy-comparison tests (src2_training_ready/analysis.py imports statsmodels, scipy)
+pingouin
+scipy
+statsmodels
+pytest
