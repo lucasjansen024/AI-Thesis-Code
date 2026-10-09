@@ -109,6 +109,32 @@ def fit_scaler(column: str, values: np.ndarray) -> ColumnScaler:
     return ColumnScaler(column, str(kind), float(offset), float(scale))
 
 
+def window_rows(targets: np.ndarray, visit_stops: np.ndarray) -> np.ndarray:
+    """Rows read by at least one target's window (t-187 ... t-1), never across a visit boundary.
+
+    `visit_stops`: per row, the end (exclusive) of its visit. Row r is read iff some target t in r's visit has
+    r + 1 <= t <= r + 187.
+    """
+    n_rows = len(visit_stops)
+    target_counts = np.concatenate(([0], np.cumsum(np.isin(np.arange(n_rows), targets))))  # targets among rows < i
+    rows = np.arange(n_rows)
+    last = np.minimum(rows + WINDOW_S, visit_stops - 1)
+    return np.flatnonzero(target_counts[last + 1] - target_counts[rows + 1] > 0)
+
+
+def fit_scalers(cache: ProcessedCache, train_targets: np.ndarray,
+                feature_columns: tuple[str, ...]) -> dict[str, ColumnScaler]:
+    """Feature scalers on the rows the training windows read; the V̇O₂ scaler on the training targets.
+
+    A target's own second is never a model input and may lack its inputs (only t-187 ... t-1 must be present), so
+    fitting features on target rows would include values the model never sees, or NaN.
+    """
+    visit_stops = cache.visits["stop"].to_numpy()[cache.row_visit()]
+    inputs = window_rows(train_targets, visit_stops)
+    scalers = {c: fit_scaler(c, cache.column(c)[inputs]) for c in feature_columns}
+    return {**scalers, TARGET_COLUMN: fit_scaler(TARGET_COLUMN, cache.column(TARGET_COLUMN)[train_targets])}
+
+
 def check_windows(targets: np.ndarray, visit_starts: np.ndarray) -> None:
     """Every target's gathered rows end at t-1 and start inside the target's visit."""
     if WINDOW_OFFSETS[-1] != -1 or len(WINDOW_OFFSETS) != WINDOW_S:
@@ -142,7 +168,7 @@ def build_fold_data(cache: ProcessedCache, mask: np.ndarray, fold: Fold,
     fit_participants = set(row_participant[train_rows])
     if fold.test_participant in fit_participants:
         raise FoldIntegrityError(f"fold {fold.test_participant}: scaler-fit rows include the test participant")
-    scalers = {c: fit_scaler(c, cache.column(c)[train_rows]) for c in (*feature_columns, TARGET_COLUMN)}
+    scalers = fit_scalers(cache, train_rows, feature_columns)
     features = np.column_stack([scalers[c].transform(cache.column(c)) for c in feature_columns]).astype(np.float32)
     target = scalers[TARGET_COLUMN].transform(cache.column(TARGET_COLUMN)).astype(np.float32)
     visit_starts = cache.visits["start"].to_numpy()[cache.row_visit()]
@@ -198,7 +224,7 @@ def build_validation_data(cache: ProcessedCache, mask: np.ndarray, fold: Validat
     if fit_participants & fold.validation_participants:
         raise FoldIntegrityError(f"split {fold.split_id}: scaler-fit rows include validation participants "
                                  f"{sorted(fit_participants & fold.validation_participants)}")
-    scalers = {c: fit_scaler(c, cache.column(c)[train_rows]) for c in (*feature_columns, TARGET_COLUMN)}
+    scalers = fit_scalers(cache, train_rows, feature_columns)
     features = np.column_stack([scalers[c].transform(cache.column(c)) for c in feature_columns]).astype(np.float32)
     target = scalers[TARGET_COLUMN].transform(cache.column(TARGET_COLUMN)).astype(np.float32)
     visit_starts = cache.visits["start"].to_numpy()[cache.row_visit()]

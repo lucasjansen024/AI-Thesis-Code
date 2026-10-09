@@ -20,6 +20,7 @@ from pipeline.prepare.anthro import (SEX_COLUMN, SMM_COLUMN, STATIC_GROUP, SmmVi
                                      fitdays_number, fitdays_smm_kg, parse_fitdays_date, participant_smm,
                                      read_cpet_test_date)
 from pipeline.prepare.grid import Grid
+from pipeline.prepare.overrides import read_overrides
 from pipeline.prepare.group import PrepInput, presence_column
 from pipeline.prepare.settings import SMM_PARTICIPANT_MEAN, SMM_PER_VISIT, PrepSettings
 from pipeline.prepare.visit import candidate_refs
@@ -221,9 +222,10 @@ def test_no_column_or_identifier_says_gender(synthetic: Synthetic) -> None:
 
 @pytest.mark.real
 def test_real_every_candidate_visit_gets_smm_by_date() -> None:
+    """By date, except the visits `prep_overrides.csv` names a Fitdays row for."""
     _, candidates = candidate_refs()
     fitdays = {d: load_participant_fitdays(d) for d in dict.fromkeys(ref.path.parent for ref in candidates)}
-    smm = candidate_smm(candidates, fitdays, SMM_PER_VISIT)
+    smm = candidate_smm(candidates, fitdays, SMM_PER_VISIT, read_overrides().fitdays_rows)
     assert set(smm) == {ref.visit_id for ref in candidates}
     assert all(np.isfinite(v) and v > 0 for v in smm.values())
 

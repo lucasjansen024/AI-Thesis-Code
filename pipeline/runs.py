@@ -78,7 +78,9 @@ SMOKE = Run("smoke", COHORTS, ("WR", "WR+HR+VENT+TSI+ANTHRO"), seeds=(0,),
 
 
 # --- Training-settings pilot (§3.0, ticket 09) ------------------------------------------------------------------
-# Validation participants only; nothing here touches a run's test results. `pipeline.pilot` trains and decides.
+# LOSO (dev, 9 Oct 2026; departs from §3.0's validation splits): every family holds out each of its participants
+# once, like the A1 folds, so the held-out participant is an A1 test participant. `pipeline.pilot` trains and
+# tabulates; the dev picks the setting from the table.
 
 POOLED_FAMILY = "pooled"
 PILOT_FAMILIES = (POOLED_FAMILY, *COHORTS)
@@ -109,6 +111,7 @@ class Pilot:
     configurations: tuple[str, ...]
     seeds: tuple[int, ...]
     prep: PrepSettings = field(default_factory=PrepSettings)
+    is_loso: bool = False  # every participant of each family held out exactly once (checked against the cache)
 
     def __post_init__(self) -> None:
         if not (self.splits and self.trajectories and self.configurations and self.seeds):
@@ -125,20 +128,21 @@ class Pilot:
             check_nirs_exclusive(parse_configuration(config_id))
 
 
-# Drawn once by `pipeline.pilot.draw_splits(PILOT_SPLIT_SEED)` and committed as literals (re-draw = call it and
-# paste). Rule: per family, rank each cohort's participants by SHA-256 of "pilot_split|<seed>|<family>|<id>";
-# pooled interleaves the Gies and Lucas rankings (G, L, G, L, ...) and cuts the first 9 into 3 triples; each
-# cohort's split takes the first 4 of its ranking as 2 pairs.
-PILOT_SPLIT_SEED = 2026
-PILOT_SPLITS = (
-    PilotSplit("pooled_1", POOLED_FAMILY, ("G01", "G15", "L07")),
-    PilotSplit("pooled_2", POOLED_FAMILY, ("G10", "L04", "L08")),
-    PilotSplit("pooled_3", POOLED_FAMILY, ("G08", "G14", "L12")),
-    PilotSplit("gies_1", "Gies", ("G01", "G15")),
-    PilotSplit("gies_2", "Gies", ("G08", "G14")),
-    PilotSplit("lucas_1", "Lucas", ("L05", "L12")),
-    PilotSplit("lucas_2", "Lucas", ("L01", "L14")),
-)
+# Participant IDs per cohort (CONTEXT.md); `pipeline.pilot.check_loso_coverage` checks them against the cache.
+PARTICIPANTS = {
+    "Gies": ("G01", *(f"G{n:02d}" for n in range(3, 16))),
+    "Lucas": (*(f"L{n:02d}" for n in range(1, 11)), "L12", "L13", "L14"),
+}
+
+
+def loso_pilot_splits() -> tuple[PilotSplit, ...]:
+    """One split per held-out participant: pooled (27), then Gies (14), then Lucas (13)."""
+    pooled = tuple(PilotSplit(f"{POOLED_FAMILY}_{p}", POOLED_FAMILY, (p,)) for c in COHORTS for p in PARTICIPANTS[c])
+    within = tuple(PilotSplit(f"{c.lower()}_{p}", c, (p,)) for c in COHORTS for p in PARTICIPANTS[c])
+    return pooled + within
+
+
+PILOT_SPLITS = loso_pilot_splits()
 # Arms R/A read off the first trajectory, B the second, D/C the third (`pipeline.pilot.ARMS`).
 PILOT_TRAJECTORY_R, PILOT_TRAJECTORY_B, PILOT_TRAJECTORY_D = "lr5e-5_ep30", "lr2e-4_ep10", "lr5e-4_ep3"
 PILOT_TRAJECTORIES = (
@@ -147,9 +151,9 @@ PILOT_TRAJECTORIES = (
     PilotTrajectory(PILOT_TRAJECTORY_D, TrainingSettings(learning_rate=5e-4, epochs=3)),
 )
 PILOT_CONFIGURATIONS = ("WR", "WR+HR+VENT+TSI+ANTHRO", "WR+HR+VENT+HBDIFF+ANTHRO", "HR+VENT+TSI+ANTHRO",
-                        "HR+VENT+HBDIFF+ANTHRO")  # needs-supervisor: replaces §3.0's three
+                        "HR+VENT+HBDIFF+ANTHRO")  # replaces §3.0's three (dev, 9 Oct 2026)
 PILOT_SEEDS = (0, 1)
-PILOT = Pilot("pilot", PILOT_SPLITS, PILOT_TRAJECTORIES, PILOT_CONFIGURATIONS, PILOT_SEEDS)
+PILOT = Pilot("pilot", PILOT_SPLITS, PILOT_TRAJECTORIES, PILOT_CONFIGURATIONS, PILOT_SEEDS, is_loso=True)
 
-# Pilot smoke (CONTEXT.md): checks the validation-logging path only; picks no setting.
+# Pilot smoke (CONTEXT.md): checks the held-out logging path only; picks no setting.
 PILOT_SMOKE = Pilot("pilot_smoke", PILOT_SPLITS[:1], PILOT_TRAJECTORIES[2:], ("WR", "WR+HR+VENT+TSI+ANTHRO"), (0,))

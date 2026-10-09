@@ -89,7 +89,7 @@ This file maps every requirement in [`AIM1_IMPLEMENTATION_HANDOFF.md`](AIM1_IMPL
 | No validation set | `train.py` | T09 | as-is | |
 | Shuffle | `train.py` | T09 | departure | **On** (seeded, new permutation each epoch). Legacy thesis model had `shuffle=False`; the handoff is silent, so the default would have been "off". Dev, 8 Oct. |
 | Same procedure for pooled, within-cohort and later Aim 2 runs | `runs.py` (one training-settings literal) | T08, T13 | as-is | Test: resolved training settings identical across A1 manifests. `evaluate()` checks fold manifests within a run agree. |
-| Never use test data to pick an epoch, checkpoint or setting | `train.py`, `pilot.py` | T09 | as-is | Checkpoint on training loss; pilot on validation participants only. |
+| Never use test data to pick an epoch, checkpoint or setting | `train.py`, `pilot.py` | T09; dev, 9 Oct | **departure** | Checkpoint on training loss (met). The setting is not: the LOSO pilot chooses it on the A1 test participants (§3.0 below). |
 
 ### §2.4 Windows and evaluation segment
 
@@ -155,12 +155,12 @@ This file maps every requirement in [`AIM1_IMPLEMENTATION_HANDOFF.md`](AIM1_IMPL
 |---|---|---|---|---|
 | Arms R, A, B, C, D (lr × epochs) | `pilot.py` | T09 | as-is | Trained as 3 **trajectories** (5e-5 × 30, 2e-4 × 10, 5e-4 × 3); A is read off R and C off D. Same procedure: constant lr, no schedule. Each arm is scored at `e* = argmin_{e ≤ E}` training loss. |
 | Log training and validation loss per epoch | `pilot.py` → `outputs/pilot/<split>/<trajectory>/epochs.csv`, `val_visits.csv` | T09, T10 | as-is | |
-| 3 pooled splits (3 participants, mixed cohorts); 2 within-cohort splits per cohort (2 participants) | `runs.py` literals | T09 | as-is | Drawn once with a fixed seed and committed as literal ID lists before running. Disjoint. |
-| Configurations `WR`, `HR+VENT`, `WR+HR+VENT+TSI+HBDIFF+ANTHRO` | `runs.py` | T09 | **departure, needs-supervisor** | Replaced by 5: `WR`, `WR+HR+VENT+TSI+ANTHRO`, `WR+HR+VENT+HBDIFF+ANTHRO`, `HR+VENT+TSI+ANTHRO`, `HR+VENT+HBDIFF+ANTHRO`. The original third configuration cannot exist under 46 configurations. |
+| 3 pooled splits (3 participants, mixed cohorts); 2 within-cohort splits per cohort (2 participants) | `runs.loso_pilot_splits()`; `pilot.check_loso_coverage` | dev, 9 Oct | **departure** | **LOSO instead of validation splits:** every family holds out each of its participants once (27 pooled, 14 Gies, 13 Lucas splits), exactly like the A1 folds, so pooled and within-cohort pilot results use the same scheme as Aim 1. Consequence: each held-out participant is an A1 test participant, so the setting is chosen on test-fold results (§2.3 and §3.0 forbid this; the methods section must say so). |
+| Configurations `WR`, `HR+VENT`, `WR+HR+VENT+TSI+HBDIFF+ANTHRO` | `runs.py` | T09; dev, 9 Oct | departure | Replaced by 5: `WR`, `WR+HR+VENT+TSI+ANTHRO`, `WR+HR+VENT+HBDIFF+ANTHRO`, `HR+VENT+TSI+ANTHRO`, `HR+VENT+HBDIFF+ANTHRO`. The original third configuration cannot exist under 46 configurations. The dev ruled that no supervisor sign-off is needed. |
 | 2 seeds | `runs.py` | T09 | as-is | Seeds 0, 1. Shared mask. |
-| Size ≈ 210 trainings | `pilot.py` | T07, T09 | changed | 21 jobs (7 splits × 3 trajectories) × K = 10 (5 configurations × 2 seeds) ≈ 2.5 h. |
-| Decision rule: cheapest arm within 10 mL·min⁻¹ of the best, everywhere; else R | `pilot.py: decide()` → `decision.json`, `decision.md` | T09, T10 | as-is | 15 cells = {pooled, Gies, Lucas} × 5 configurations. Metric: validation RMSE per participant-visit → participant → splits × seeds. Addition: an A/B tie (both 10 epochs) goes to the lower mean RMSE over the 15 cells. Records wall time per job and per model-epoch. |
-| Never use test results | `pilot.py` | T09 | as-is | |
+| Size ≈ 210 trainings | `pilot.py` | T07, T09; dev, 9 Oct | changed | 162 jobs (54 LOSO splits × 3 trajectories) × K = 10 (5 configurations × 2 seeds) ≈ 27 h on the B580 (pooled fold ≈ 40 min, within-cohort fold ≈ 20 min, per 3 trajectories). |
+| Decision rule: cheapest arm within 10 mL·min⁻¹ of the best, everywhere; else R | `pilot.py: decide()` → `decision.json`, `decision.md` | T09, T10; dev, 9 Oct | **departure** | `decide()` still computes the table and the rule's result: 15 cells = {pooled, Gies, Lucas} × 5 configurations; held-out RMSE per participant-visit → participant → splits × seeds; an A/B tie goes to the lower mean RMSE. **The rule is not binding:** the dev picks the setting after seeing the table (the handoff required a rule written down before running). |
+| Never use test results | — | dev, 9 Oct | **departure** | Not met: under LOSO, the held-out participants are the A1 test participants (see the splits row). |
 
 ### §3.1 Input domains
 
@@ -246,7 +246,7 @@ This file maps every requirement in [`AIM1_IMPLEMENTATION_HANDOFF.md`](AIM1_IMPL
 4. Rerunning `run(SMOKE)` skips both folds within seconds.
 5. Per-epoch wall time within ~2× of the measured budget, scaled to K = 2.
 
-**Pilot smoke:** split `pooled_1` × trajectory D (5e-4, 3 epochs) × the same 2 configurations × seed 0. Checks that `val_visits.csv` and `val_mse_scaled` are written; `decide()` is not run.
+**Pilot smoke:** split `pooled_G01` (G01 held out) × trajectory D (5e-4, 3 epochs) × the same 2 configurations × seed 0. Checks that `val_visits.csv` and `val_mse_scaled` are written; `decide()` is not run.
 
 ---
 
@@ -271,8 +271,8 @@ This file maps every requirement in [`AIM1_IMPLEMENTATION_HANDOFF.md`](AIM1_IMPL
 | HRrest | `hrrest_window_s` (`PrepSettings`) | 120 (0–120 s, same visit, same source) | same-visit rest mean | as-is | T06 |
 | SMM | `smm: per_visit \| participant_mean` (`PrepSettings`) | `per_visit` | current code | departure (definition) | T06 |
 | NIRS fit-factor threshold | `NIRS_FIT_SHARE_COLUMN = "ff_ge99"` (the 99 % level), `NIRS_MIN_FIT_SHARE = 0.95` (`inventory/build_inclusion.py`) | 99 % in ≥ 95 % of a unit's seconds | 99.9 % | departure | T02, T05, T12 |
-| Training setting (lr × epochs) | literal in `runs.py`, copied from `outputs/pilot/decision.md` | 5e-5 × 30 until the pilot | pilot rule | as-is | T09, T10 |
-| Pilot tolerance | constant in `pilot.py` | 10 mL·min⁻¹ | 10 mL·min⁻¹ | as-is | T09 |
+| Training setting (lr × epochs) | literal in `runs.py`, chosen by the dev from `outputs/pilot/decision.md` | 5e-5 × 30 until the pilot | pilot rule | departure (dev picks; rule shown, not binding) | T09, T10; dev, 9 Oct |
+| Pilot tolerance | constant in `pilot.py` (informational) | 10 mL·min⁻¹ | 10 mL·min⁻¹ | as-is | T09 |
 | Equivalence margin | statistics scripts (outside this work) | ±25 mL·min⁻¹ | ±25 mL·min⁻¹ | as-is | — |
 | Within-cohort runs | `runs.py` | all 46 configurations | all configurations | as-is | T07 |
 

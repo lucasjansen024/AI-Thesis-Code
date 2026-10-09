@@ -1,8 +1,12 @@
-"""Training-settings pilot (§3.0, tickets 09 and 10): `run_pilot(pilot)` trains, `decide(pilot)` picks the arm.
+"""Training-settings pilot (§3.0, tickets 09 and 10): `run_pilot(pilot)` trains, `decide(pilot)` tabulates the arms.
 
-Each (validation split, trajectory) is one packed job: the pilot's configurations x seeds on the split's training
+The pilot is LOSO (dev, 9 Oct 2026, departing from §3.0's validation splits): each split holds out one participant
+of its family (pooled, Gies, Lucas), exactly like the A1 folds, so its held-out results are A1 test-fold results.
+The dev picks the setting from the table; `decide()`'s rule result is shown alongside, not binding.
+
+Each (split, trajectory) is one packed job: the pilot's configurations x seeds on the split's training
 participants under the shared mask, scalers fit on those participants only. After every epoch each branch's
-current weights are extracted and scored on the split's validation participants (`fit_packed(on_epoch=...)`).
+current weights are extracted and scored on the split's held-out participants (`fit_packed(on_epoch=...)`).
 Outputs per job, `outputs/<pilot_id>/<split_id>/<trajectory_id>/` (written as `.tmp/`, renamed after the
 manifest, finished jobs skipped): `manifest.json`, `epochs.csv`, `val_visits.csv`. No predictions, no weights.
 
@@ -10,12 +14,11 @@ manifest, finished jobs skipped): `manifest.json`, `epochs.csv`, `val_visits.csv
 trajectory (earliest epoch on a tie); RMSE is averaged over visits, then participants, then splits x seeds, giving
 one value per (family, configuration, arm) cell. The arm with the fewest epochs within `QUALIFY_MARGIN` of each
 cell's best arm in every cell wins; arms with equal epochs (A, B) go to the lower mean RMSE over the cells; if no
-arm cheaper than R qualifies everywhere, R. Test participants of the A1 runs play no part; nothing reads
-any run output folder, and nothing reads the decision at train time (the dev copies it into `runs.py`).
+arm cheaper than R qualifies everywhere, R. Nothing reads any run output folder, and nothing reads the decision
+at train time (the dev copies the chosen setting into `runs.py`).
 """
 from __future__ import annotations
 
-import hashlib
 import json
 import logging
 import platform
@@ -23,7 +26,7 @@ import shutil
 import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Callable, Mapping, Sequence
+from typing import Callable, Mapping
 
 import numpy as np
 import pandas as pd
@@ -37,8 +40,8 @@ from pipeline.fit import (Branch, DeviceData, FitResult, configure_determinism, 
 from pipeline.folds import FoldData, build_validation_data, validation_fold
 from pipeline.inclusion import read_inclusion
 from pipeline.provenance import REPO_ROOT, derive_seed, git_state, package_versions, sha256_file, utc_now
-from pipeline.runs import (COHORTS, PILOT, PILOT_SPLIT_SEED, PILOT_TRAJECTORY_B, PILOT_TRAJECTORY_D,
-                           PILOT_TRAJECTORY_R, POOLED_FAMILY, SHARED_MASK, Pilot, PilotSplit, PilotTrajectory, Run)
+from pipeline.runs import (COHORTS, PILOT, PILOT_TRAJECTORY_B, PILOT_TRAJECTORY_D, PILOT_TRAJECTORY_R,
+                           SHARED_MASK, Pilot, PilotSplit, PilotTrajectory, Run)
 from pipeline.train import BRANCH_LAYOUT, EPOCH_COLUMNS, MANIFEST_NAME, TMP_SUFFIX, RunData, build_run_data
 
 logger = logging.getLogger(__name__)
@@ -50,8 +53,6 @@ VAL_VISIT_COLUMNS = ["config_id", "seed", "epoch", "participant_id", "visit_id",
 DECISION_JSON, DECISION_MD = "decision.json", "decision.md"
 QUALIFY_MARGIN = 10.0  # mL/min above a cell's best arm
 SHARED_MASK_GROUP = 0  # dropout seed part, as for a fold's single mask group
-N_POOLED_SPLITS, POOLED_SIZE = 3, 3
-N_COHORT_SPLITS, COHORT_SIZE = 2, 2
 JOB_KEYS = ["split_id", "trajectory_id"]
 MODEL_KEYS = ["split_id", "config_id", "seed"]
 
@@ -70,42 +71,34 @@ FALLBACK_ARM = "R"
 
 # --- splits -----------------------------------------------------------------------------------------------------
 
-def _ranking(participants: Sequence[str], seed: int, family: str) -> list[str]:
-    def key(pid: str) -> str:
-        return hashlib.sha256(f"pilot_split|{seed}|{family}|{pid}".encode()).hexdigest()
-    return sorted(participants, key=key)
-
-
-def draw_splits(participants: Mapping[str, Sequence[str]], seed: int = PILOT_SPLIT_SEED) -> tuple[PilotSplit, ...]:
-    """The documented draw behind `runs.PILOT_SPLITS` (participants per cohort, e.g. from the inclusion CSV)."""
-    gies, lucas = (_ranking(participants[c], seed, POOLED_FAMILY) for c in COHORTS)
-    interleaved = [p for pair in zip(gies, lucas) for p in pair]
-    pooled = tuple(PilotSplit(f"{POOLED_FAMILY}_{i + 1}", POOLED_FAMILY,
-                              tuple(sorted(interleaved[i * POOLED_SIZE:(i + 1) * POOLED_SIZE])))
-                   for i in range(N_POOLED_SPLITS))
-    within = tuple(PilotSplit(f"{cohort.lower()}_{i + 1}", cohort,
-                              tuple(sorted(ranked[i * COHORT_SIZE:(i + 1) * COHORT_SIZE])))
-                   for cohort in COHORTS for ranked in [_ranking(participants[cohort], seed, cohort)]
-                   for i in range(N_COHORT_SPLITS))
-    return pooled + within
-
-
 def check_splits(splits: tuple[PilotSplit, ...], visits: pd.DataFrame) -> None:
-    """Disjoint within a family, every ID in its family's cohorts, pooled splits mix both cohorts."""
+    """Held-out participants disjoint within a family, and every ID in its family's cohorts."""
     cohort_of = dict(zip(visits["participant_id"], visits["cohort"]))
     errors = []
     for family in dict.fromkeys(s.family for s in splits):
         ids = [p for s in splits if s.family == family for p in s.validation]
         if len(set(ids)) != len(ids):
-            errors.append(f"{family}: overlapping validation participants {sorted(ids)}")
+            errors.append(f"{family}: overlapping held-out participants {sorted(ids)}")
     for split in splits:
         cohorts = {cohort_of.get(p) for p in split.validation}
         if not cohorts <= set(split.cohorts):
             errors.append(f"{split.split_id}: participants {split.validation} outside {split.cohorts}")
-        if split.family == POOLED_FAMILY and cohorts != set(COHORTS):
-            errors.append(f"{split.split_id}: pooled split {split.validation} does not mix both cohorts")
     if errors:
         raise ValueError("pilot splits: " + " | ".join(errors))
+
+
+def check_loso_coverage(splits: tuple[PilotSplit, ...], visits: pd.DataFrame) -> None:
+    """LOSO: each split holds out one participant, and each family holds out every participant of its cohorts."""
+    errors = [f"{s.split_id}: holds out {list(s.validation)}, not one participant"
+              for s in splits if len(s.validation) != 1]
+    for family in dict.fromkeys(s.family for s in splits):
+        family_splits = [s for s in splits if s.family == family]
+        held_out = {p for s in family_splits for p in s.validation}
+        expected = set(visits.loc[visits["cohort"].isin(family_splits[0].cohorts), "participant_id"])
+        if held_out != expected:
+            errors.append(f"{family}: missing {sorted(expected - held_out)}, unknown {sorted(held_out - expected)}")
+    if errors:
+        raise ValueError("LOSO pilot splits: " + " | ".join(errors))
 
 
 # --- training ---------------------------------------------------------------------------------------------------
@@ -160,6 +153,8 @@ def train_pilot(pilot: Pilot, data: RunData, output_root: Path = OUTPUTS_ROOT,
     if data.config_masks:
         raise ValueError(f"{pilot.pilot_id}: the pilot uses the shared mask, got per_config masks")
     check_splits(pilot.splits, data.cache.visits)
+    if pilot.is_loso:
+        check_loso_coverage(pilot.splits, data.cache.visits)
     logger.info("%s: %d splits x %d trajectories on %s (%s)", pilot.pilot_id, len(pilot.splits),
                 len(pilot.trajectories), device, device_name(device))
     return [train_trajectory(pilot, data, split, trajectory, output_root / pilot.pilot_id, device)

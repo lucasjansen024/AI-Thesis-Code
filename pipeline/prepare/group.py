@@ -30,6 +30,7 @@ class PrepInput:
     refs: tuple[VisitRef, ...]  # every visit folder (incl. superseded), for sibling-file lookups
     hr_source: str = ""  # "tymewear" | "cpet" | "" (none), from inclusion.csv's HR rows
     smm_kg: float = math.nan  # resolved by `anthro.candidate_smm` per `settings.smm`; NaN = static group absent
+    age_years: float = math.nan  # HRpeak age override (`prep_overrides.csv` age_from_visit); NaN = own CPET header
 
 
 @dataclass(frozen=True)

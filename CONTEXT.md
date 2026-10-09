@@ -113,7 +113,7 @@ The random seed of a **Training**. Every combination is trained with five seeds 
 The epoch whose average training loss (dropout active) is lowest; that epoch's weights are the trained model. Never chosen on validation or test data.
 
 **Pilot**:
-The training-settings pilot that picks one global learning-rate × epochs setting on validation participants only. Its candidate settings are **arms** (R, A, B, C, D). It trains on **validation splits** (pooled and within-cohort), not on folds.
+The training-settings pilot that picks one global learning-rate × epochs setting. Its candidate settings are **arms** (R, A, B, C, D). It is LOSO, like the **Runs**: one split per held-out **Participant** in each of the pooled, Gies and Lucas families (27 + 14 + 13). The dev chooses the setting from its table.
 
 **Trajectory**:
 One pilot training at a fixed learning rate, logged every epoch. An arm with fewer epochs at the same learning rate is read off a longer trajectory (A from R, C from D), since its training is identical up to that epoch.
@@ -122,7 +122,7 @@ One pilot training at a fixed learning rate, logged every epoch. An arm with few
 A tiny **Run** (2 **Configurations** × 2 **Folds** × 1 **Seed**, 3 epochs) that checks the pipeline end to end before the **Pilot**. It is a plumbing check, its results are not used, and it is not the **Pilot**.
 
 **Pilot smoke**:
-A tiny **Pilot** slice (1 validation split × 1 **Trajectory** × 2 **Configurations** × 1 **Seed**) that checks the pilot-only code path (validation logging). It picks no setting.
+A tiny **Pilot** slice (1 split × 1 **Trajectory** × 2 **Configurations** × 1 **Seed**) that checks the pilot-only code path (held-out logging). It picks no setting.
 
 **Seed-averaged metric**:
 The mean of a metric over the five **Seeds**, each seed's metric computed from its own predictions. It estimates how one **Training** performs.
@@ -157,5 +157,5 @@ _Avoid_: VO₂max (no plateau criterion is checked)
 - "P12", "P13", "P14" exist in both cohorts. Always use a **participant_id**.
 - "Lucas data" can mean the Lucas **Cohort** (2026) or an unrelated 2025 dataset found in the archives (P01–P10, LP01–LP10). That 2025 dataset is excluded; **Cohort** Lucas means 2026 only.
 - "gender" → **sex** in every output and column name.
-- The handoff's pilot configurations (§3.0: `WR`, `HR+VENT`, `WR+HR+VENT+TSI+HBDIFF+ANTHRO`) are replaced by five: `WR`, and with and without `WR` the full set for each **NIRS variable**.
+- The handoff's pilot configurations (§3.0: `WR`, `HR+VENT`, `WR+HR+VENT+TSI+HBDIFF+ANTHRO`) are replaced by five: `WR`, and with and without `WR` the full set for each **NIRS variable**. The handoff's validation splits are replaced by LOSO.
 - "V̇E" and "BR" can come from the metabolic cart or from the Tymewear strap. Only the Tymewear signals are model inputs; the cart's V̇E shares the flow measurement V̇O₂ is computed from.

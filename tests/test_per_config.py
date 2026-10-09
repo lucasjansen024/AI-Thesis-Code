@@ -30,7 +30,9 @@ PER_CONFIG_RUN = replace(SYNTHETIC_RUN, run_id="synthetic_per_config", mask=PER_
                          configurations=("WR", "WR+HR", "WR+VENT", "WR+HR+ANTHRO"))
 EXPECTED_GROUPS = (("WR", "WR+VENT"), ("WR+HR", "WR+HR+ANTHRO"))  # with the HR gap, in every fold
 ALL_EXERCISE = np.arange(WARMUP_END_S, VISIT_S)
-MAX_POOLED_GROUPS, LUCAS_GROUPS = 8, 1
+# Lucas: every unit is valid for every group, but VENT is absent in the last 1-11 s of exercise in 10 visits
+# (Tymewear end / trailing median), so configurations without VENT keep a few final targets: 2 groups.
+MAX_POOLED_GROUPS, LUCAS_GROUPS = 8, 2
 N_GIES_VISITS = 55
 
 
@@ -307,5 +309,3 @@ def test_per_config_mask_group_counts(real_cache: ProcessedCache, committed_incl
                                                      fold_rows=fold_row_mask(real_cache, fold)))
               for fold in run_folds(per_config, real_cache)}
     assert max(counts.values()) <= max_groups, counts
-    if max_groups == LUCAS_GROUPS:
-        assert set(counts.values()) == {LUCAS_GROUPS}

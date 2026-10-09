@@ -26,12 +26,12 @@ def build_inclusion() -> int:
 
 
 if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO, format=PIPELINE_LOG_FORMAT)
     # run_inventory(ROUGH_INVENTORY_VISITS)
     # run_inventory()
-    build_inclusion()
+    # build_inclusion()
 
     # Aim 1 pipeline → outputs/runs/<run_id>/. Pass folds=["G07", "L04"] to train a subset of folds.
-    # logging.basicConfig(level=logging.INFO, format=PIPELINE_LOG_FORMAT)
     # Smoke run first (2 configurations x folds G07, L04 x seed 0, 3 epochs):
     # run(SMOKE)
     # evaluate(SMOKE)
@@ -42,8 +42,8 @@ if __name__ == "__main__":
     # run(A1_LUCAS)
     # evaluate(A1_LUCAS)
 
-    # Training-settings pilot → outputs/pilot/<split>/<trajectory>/ (validation participants only).
-    # Pilot smoke first (pooled_1 x lr 5e-4 x 3 epochs x WR, WR+HR+VENT+TSI+ANTHRO x seed 0) → outputs/pilot_smoke/:
+    # Training-settings pilot, LOSO (54 splits x 3 trajectories, ~27 h) → outputs/pilot/<split>/<trajectory>/.
+    # Pilot smoke first (pooled_G01 x lr 5e-4 x 3 epochs x WR, WR+HR+VENT+TSI+ANTHRO x seed 0) → outputs/pilot_smoke/:
     # run_pilot(PILOT_SMOKE)
-    # run_pilot(PILOT)
+    run_pilot(PILOT)
     # decide(PILOT)  # → outputs/pilot/decision.json, decision.md; copy the chosen lr x epochs into runs.A1_TRAINING

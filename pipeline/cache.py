@@ -2,9 +2,10 @@
 
 One float32 matrix of all visit-seconds (meta columns, features, presence flags), per-visit row offsets and ID arrays.
 Key = hash of `PrepSettings` + the source of `pipeline/prepare/` and `inventory/` + the per-visit HR sources read
-from the inclusion CSV (they decide which signal is the HR feature), so uncommitted edits also
-invalidate it. Raw data is treated as immutable; `rebuild=True` forces a rebuild. Validity verdicts are never
-baked in: other CSV edits (e.g. the NIRS review) keep the key, and `pipeline.inclusion` joins them at load.
+from the inclusion CSV (they decide which signal is the HR feature) + the per-visit fixes in `prep_overrides.csv`,
+so uncommitted edits also invalidate it. Raw data is treated as immutable; `rebuild=True` forces a rebuild.
+Validity verdicts are never baked in: other CSV edits (e.g. the NIRS review) keep the key, and
+`pipeline.inclusion` joins them at load.
 """
 from __future__ import annotations
 
@@ -22,6 +23,7 @@ import pandas as pd
 from inventory.build_inclusion import INCLUSION_CSV
 from inventory.catalog import RAW_ROOT
 from pipeline.prepare.hr import read_hr_sources
+from pipeline.prepare.overrides import NO_OVERRIDES, OVERRIDES_CSV, PrepOverrides, read_overrides
 from pipeline.prepare.settings import PrepSettings
 from pipeline.prepare.visit import ID_FIELDS, META_COLUMNS, ProcessedVisit, prepare_all
 from pipeline.provenance import REPO_ROOT, source_hash, utc_now
@@ -62,9 +64,9 @@ class ProcessedCache:
 
 
 def cache_key(settings: PrepSettings, source_roots: Sequence[Path] = SOURCE_ROOTS,
-              hr_sources: Mapping[str, str] | None = None) -> str:
+              hr_sources: Mapping[str, str] | None = None, overrides: PrepOverrides = NO_OVERRIDES) -> str:
     payload = {"format": CACHE_FORMAT, "settings": asdict(settings), "source": source_hash(source_roots),
-               "hr_sources": dict(sorted((hr_sources or {}).items()))}
+               "hr_sources": dict(sorted((hr_sources or {}).items())), "overrides": overrides.as_key()}
     return hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()
 
 
@@ -92,14 +94,14 @@ def from_visits(processed: Sequence[ProcessedVisit], key: str) -> ProcessedCache
 
 
 def save(cache: ProcessedCache, folder: Path, settings: PrepSettings,
-         hr_sources: Mapping[str, str] | None = None) -> None:
+         hr_sources: Mapping[str, str] | None = None, overrides: PrepOverrides = NO_OVERRIDES) -> None:
     folder.mkdir(parents=True)
     ids = {field: cache.visits[field].to_numpy(dtype=str) for field in ID_FIELDS}
     offsets = np.append(cache.visits["start"].to_numpy(), cache.n_rows)
     np.savez(folder / NPZ_NAME, matrix=cache.matrix, columns=np.array(cache.columns), offsets=offsets, **ids)
     meta = {"key": cache.key, "format": CACHE_FORMAT, "settings": asdict(settings), "created": utc_now(),
             "n_visits": len(cache.visits), "n_rows": cache.n_rows, "columns": list(cache.columns),
-            "hr_sources": dict(sorted((hr_sources or {}).items()))}
+            "hr_sources": dict(sorted((hr_sources or {}).items())), "overrides": overrides.as_key()}
     (folder / META_NAME).write_text(json.dumps(meta, indent=2), encoding="utf-8")
 
 
@@ -115,9 +117,11 @@ def load(folder: Path, key: str) -> ProcessedCache:
 
 
 def load_or_build(settings: PrepSettings = PrepSettings(), rebuild: bool = False, cache_root: Path = CACHE_ROOT,
-                  raw_root: Path = RAW_ROOT, inclusion_path: Path = INCLUSION_CSV) -> ProcessedCache:
+                  raw_root: Path = RAW_ROOT, inclusion_path: Path = INCLUSION_CSV,
+                  overrides_path: Path = OVERRIDES_CSV) -> ProcessedCache:
     hr_sources = read_hr_sources(inclusion_path)
-    key = cache_key(settings, hr_sources=hr_sources)
+    overrides = read_overrides(overrides_path)
+    key = cache_key(settings, hr_sources=hr_sources, overrides=overrides)
     folder = cache_root / key
     if folder.exists() and not rebuild:
         logger.info("cache hit %s", folder)
@@ -127,8 +131,8 @@ def load_or_build(settings: PrepSettings = PrepSettings(), rebuild: bool = False
         logger.info("removing leftover %s", tmp)
         shutil.rmtree(tmp)
     logger.info("building cache %s from %s", key[:12], raw_root)
-    cache = from_visits(prepare_all(settings, raw_root, hr_sources=hr_sources), key)
-    save(cache, tmp, settings, hr_sources)
+    cache = from_visits(prepare_all(settings, raw_root, hr_sources=hr_sources, overrides=overrides), key)
+    save(cache, tmp, settings, hr_sources, overrides)
     if folder.exists():  # rebuild=True: replace only once the new cache is complete
         shutil.rmtree(folder)
     tmp.rename(folder)

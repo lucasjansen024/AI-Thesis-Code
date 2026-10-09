@@ -18,9 +18,9 @@ from pipeline.fit import configure_determinism, fit_packed, pack_layout, to_devi
 from pipeline.folds import FoldIntegrityError, build_validation_data, validation_fold
 from pipeline.inclusion import WINDOW_S, shared_mask
 from pipeline.pilot import (ARMS, DECISION_JSON, DECISION_MD, EPOCHS_NAME, OUTPUTS_ROOT, PILOT_EPOCH_COLUMNS,
-                            VAL_VISIT_COLUMNS, VAL_VISITS_NAME, PilotLogError, arm_checkpoints, check_splits,
-                            choose_arm, decide, draw_splits, participant_rmse, pilot_run_spec, train_pilot)
-from pipeline.runs import (COHORTS, PILOT, PILOT_CONFIGURATIONS, PILOT_SMOKE, PILOT_SPLIT_SEED, PILOT_SPLITS,
+                            VAL_VISIT_COLUMNS, VAL_VISITS_NAME, PilotLogError, arm_checkpoints, check_loso_coverage,
+                            check_splits, choose_arm, decide, participant_rmse, pilot_run_spec, train_pilot)
+from pipeline.runs import (COHORTS, PILOT, PILOT_CONFIGURATIONS, PILOT_SMOKE, PILOT_SPLITS,
                            PILOT_TRAJECTORIES, Pilot, PilotSplit, PilotTrajectory, TrainingSettings)
 from pipeline.train import MANIFEST_NAME, RUNS_ROOT, build_run_data
 from tests.synthetic import ColumnEdit, make_synthetic
@@ -67,41 +67,46 @@ def _cohort_participants(inclusion: pd.DataFrame) -> dict[str, list[str]]:
     return {c: sorted(pairs.loc[pairs["cohort"] == c, "participant_id"]) for c in COHORTS}
 
 
-def test_committed_splits_are_the_documented_draw(committed_inclusion: pd.DataFrame) -> None:
-    assert draw_splits(_cohort_participants(committed_inclusion), PILOT_SPLIT_SEED) == PILOT_SPLITS
-
-
-def test_splits_are_disjoint_sized_and_pooled_triples_mix_cohorts(committed_inclusion: pd.DataFrame) -> None:
-    cohort_of = dict(zip(committed_inclusion["participant_id"], committed_inclusion["cohort"]))
+def test_pilot_is_loso_over_every_participant_of_each_family(committed_inclusion: pd.DataFrame) -> None:
+    participants = _cohort_participants(committed_inclusion)
     by_family = {f: [s for s in PILOT_SPLITS if s.family == f] for f in ("pooled", *COHORTS)}
-    assert [len(s.validation) for s in by_family["pooled"]] == [3, 3, 3]
-    assert all({cohort_of[p] for p in s.validation} == set(COHORTS) for s in by_family["pooled"])
+    assert all(len(s.validation) == 1 for s in PILOT_SPLITS)
+    assert sorted(p for s in by_family["pooled"] for p in s.validation) == sorted(participants["Gies"]
+                                                                                  + participants["Lucas"])
     for cohort in COHORTS:
-        assert [len(s.validation) for s in by_family[cohort]] == [2, 2]
-        assert all({cohort_of[p] for p in s.validation} == {cohort} for s in by_family[cohort])
-    for splits in by_family.values():
-        ids = [p for s in splits for p in s.validation]
-        assert len(ids) == len(set(ids))
+        assert sorted(p for s in by_family[cohort] for p in s.validation) == participants[cohort]
+    assert [len(by_family[f]) for f in ("pooled", *COHORTS)] == [27, 14, 13]
+    assert PILOT.is_loso
     check_splits(PILOT_SPLITS, committed_inclusion)
+    check_loso_coverage(PILOT_SPLITS, committed_inclusion)
 
 
 @pytest.mark.parametrize("splits", [
     (PilotSplit("pooled_1", "pooled", ("G01", "G03", "L01")), PilotSplit("pooled_2", "pooled", ("G03", "L02", "G04"))),
-    (PilotSplit("pooled_1", "pooled", ("G01", "G03", "G04")),),
     (PilotSplit("gies_1", "Gies", ("G01", "L01")),),
 ])
-def test_check_splits_rejects_overlap_unmixed_and_wrong_cohort(splits: tuple[PilotSplit, ...],
-                                                              committed_inclusion: pd.DataFrame) -> None:
+def test_check_splits_rejects_overlap_and_wrong_cohort(splits: tuple[PilotSplit, ...],
+                                                       committed_inclusion: pd.DataFrame) -> None:
     with pytest.raises(ValueError, match="pilot splits"):
         check_splits(splits, committed_inclusion)
 
 
+@pytest.mark.parametrize("splits", [
+    PILOT_SPLITS[:-1],  # Lucas misses its last participant
+    (*PILOT_SPLITS[:-1], PilotSplit("lucas_pair", "Lucas", ("L13", "L14"))),  # two held out at once
+])
+def test_loso_coverage_rejects_missing_or_grouped_participants(splits: tuple[PilotSplit, ...],
+                                                               committed_inclusion: pd.DataFrame) -> None:
+    with pytest.raises(ValueError, match="LOSO pilot splits"):
+        check_loso_coverage(splits, committed_inclusion)
+
+
 def test_pilot_registry() -> None:
     assert PILOT.configurations == PILOT_CONFIGURATIONS and len(PILOT_CONFIGURATIONS) == 5
-    assert PILOT.seeds == (0, 1) and len(PILOT.splits) == 7
+    assert PILOT.seeds == (0, 1) and len(PILOT.splits) == 54
     assert [(t.training.learning_rate, t.training.epochs) for t in PILOT_TRAJECTORIES] == \
         [(5e-5, 30), (2e-4, 10), (5e-4, 3)]
-    assert [s.split_id for s in PILOT_SMOKE.splits] == ["pooled_1"]
+    assert [s.split_id for s in PILOT_SMOKE.splits] == ["pooled_G01"]
     assert [t.training.epochs for t in PILOT_SMOKE.trajectories] == [3]
     assert PILOT_SMOKE.configurations == ("WR", "WR+HR+VENT+TSI+ANTHRO") and PILOT_SMOKE.seeds == (0,)
     trajectories = {t.trajectory_id: t.training.epochs for t in PILOT_TRAJECTORIES}
@@ -150,7 +155,7 @@ def test_real_split_never_trains_on_its_validation_participants(real_cache: Proc
     participant_of = dict(zip(real_cache.visits["visit_id"], real_cache.visits["participant_id"]))
     trained = {participant_of[v] for v in fold.train_visits}
     assert not trained & set(split.validation)
-    expected = 24 if split.family == "pooled" else {"Gies": 12, "Lucas": 11}[split.family]
+    expected = 26 if split.family == "pooled" else {"Gies": 13, "Lucas": 12}[split.family]
     assert len(trained) == expected
 
 
@@ -238,7 +243,7 @@ def test_decide_picks_the_fewest_epoch_arm_that_qualifies_everywhere(tmp_path: P
     np.testing.assert_allclose(decision.cells["D"], 149.0)
     written = json.loads((tmp_path / PILOT.pilot_id / DECISION_JSON).read_text(encoding="utf-8"))
     assert written["chosen"] == {"arm": "D", "learning_rate": 5e-4, "epochs": 3, "batch_size": 32}
-    assert len(written["wall"]["jobs"]) == 21
+    assert len(written["wall"]["jobs"]) == len(PILOT.splits) * len(PILOT.trajectories)
     assert written["wall"]["per_model_epoch_s"] == pytest.approx(21 * 10.0 / (10 * 7 * (30 + 10 + 3)))
     assert "Chosen arm: D" in (tmp_path / PILOT.pilot_id / DECISION_MD).read_text(encoding="utf-8")
 
@@ -263,8 +268,8 @@ def test_decide_falls_back_to_r(tmp_path: Path) -> None:
 
 def test_decide_raises_on_a_missing_job(tmp_path: Path) -> None:
     _write_logs(tmp_path, _levels({"C": 1.0, "D": 1.0, "A": 1.0, "B": 1.0, "R": 1.0}))
-    (tmp_path / PILOT.pilot_id / "lucas_2" / "lr2e-4_ep10" / MANIFEST_NAME).unlink()
-    with pytest.raises(PilotLogError, match="lucas_2/lr2e-4_ep10"):
+    (tmp_path / PILOT.pilot_id / "lucas_L14" / "lr2e-4_ep10" / MANIFEST_NAME).unlink()
+    with pytest.raises(PilotLogError, match="lucas_L14/lr2e-4_ep10"):
         decide(PILOT, output_root=tmp_path)
 
 

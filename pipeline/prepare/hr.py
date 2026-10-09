@@ -5,7 +5,8 @@
 - HR: no smoothing; linear interpolation at integer seconds; present where the source has samples no more than
   `max_interp_gap_s` apart.
 - HRR = (HR - HRrest) / (HRpeak - HRrest). HRrest = mean HR of the same source over the present grid seconds
-  in [0, hrrest_window_s). HRpeak = 208 - 0.7 x age (Tanaka), age from this visit's CPET header, full precision.
+  in [0, hrrest_window_s). HRpeak = 208 - 0.7 x age (Tanaka), age from this visit's CPET header, full precision
+  (or from the visit named by a `prep_overrides.csv` age_from_visit override).
 """
 from __future__ import annotations
 
@@ -103,5 +104,6 @@ def build_hr(inp: PrepInput) -> GroupColumns:
         logger.warning("%s: no %s HR in the first %d s; HRR undefined, HR absent",
                        visit_id, inp.hr_source, inp.settings.hrrest_window_s)
         return absent
-    hrr = heart_rate_reserve(hr, float(hr[in_rest].mean()), tanaka_hr_peak(visit_age(inp.visit)))
+    age = inp.age_years if math.isfinite(inp.age_years) else visit_age(inp.visit)
+    hrr = heart_rate_reserve(hr, float(hr[in_rest].mean()), tanaka_hr_peak(age))
     return GroupColumns(HR_GROUP, {HR_COLUMN: hr, HRR_COLUMN: hrr}, present)

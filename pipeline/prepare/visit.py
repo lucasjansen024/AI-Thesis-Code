@@ -12,15 +12,16 @@ from typing import Callable, Mapping
 
 import numpy as np
 
-from inventory.annotations import annotation_for, load_annotations
+from inventory.annotations import Annotation, annotation_for, load_annotations
 from inventory.catalog import RAW_ROOT, VisitRef, enumerate_visits
 from inventory.sensors import Loaded, VisitData, load_participant_fitdays, load_visit
 from pipeline.prepare.anthro import build_anthro, candidate_smm
 from pipeline.prepare.breath import build_vo2
 from pipeline.prepare.grid import build_grid
 from pipeline.prepare.group import GroupColumns, PrepInput, presence_column
-from pipeline.prepare.hr import build_hr
+from pipeline.prepare.hr import build_hr, visit_age
 from pipeline.prepare.nirs import build_nirs
+from pipeline.prepare.overrides import NO_OVERRIDES, PrepOverrides, check_overrides
 from pipeline.prepare.settings import PrepSettings
 from pipeline.prepare.vent import build_vent
 from pipeline.prepare.wr import build_wr
@@ -43,12 +44,12 @@ class ProcessedVisit:
 
 
 def prepare_visit(visit: VisitData, refs: tuple[VisitRef, ...], settings: PrepSettings,
-                  hr_source: str = "", smm_kg: float = math.nan) -> ProcessedVisit:
+                  hr_source: str = "", smm_kg: float = math.nan, age_years: float = math.nan) -> ProcessedVisit:
     ref = visit.ref
     if not visit.cpet.ok and visit.timeline.exercise_end_s is None:
         raise ValueError(f"{ref.visit_id}: ramp end unknown without a CPET file ({visit.cpet.error or 'missing'})")
     grid = build_grid(visit.timeline)
-    inp = PrepInput(visit, grid, settings, refs, hr_source, smm_kg)
+    inp = PrepInput(visit, grid, settings, refs, hr_source, smm_kg, age_years)
     columns: dict[str, np.ndarray] = {"t": grid.t, "phase": grid.phase, "unit": grid.unit}
     for build in GROUP_BUILDERS:
         group = build(inp)
@@ -66,23 +67,41 @@ def candidate_refs(raw_root: Path = RAW_ROOT) -> tuple[tuple[VisitRef, ...], tup
     return refs, tuple(ref for ref in refs if ref.role == CANDIDATE_ROLE)
 
 
+def override_ages(overrides: PrepOverrides, refs: tuple[VisitRef, ...],
+                  annotations: dict[tuple[str, str], Annotation], fitdays: Mapping[Path, Loaded]) -> dict[str, float]:
+    """visit_id -> HRpeak age taken from the CPET header of the visit its `age_from_visit` override names."""
+    by_id = {ref.visit_id: ref for ref in refs}
+    ages = {}
+    for visit_id, source_id in sorted(overrides.age_from.items()):
+        source = by_id[source_id]
+        loaded = load_visit(source, annotation_for(source, annotations), fitdays[source.path.parent])
+        ages[visit_id] = visit_age(loaded)
+        logger.info("%s: HRpeak age from %s's CPET header (prep_overrides.csv)", visit_id, source_id)
+    return ages
+
+
 def prepare_all(settings: PrepSettings, raw_root: Path = RAW_ROOT, *,
-                hr_sources: Mapping[str, str]) -> list[ProcessedVisit]:
+                hr_sources: Mapping[str, str], overrides: PrepOverrides = NO_OVERRIDES) -> list[ProcessedVisit]:
     """Every candidate visit of both cohorts, rebuilt from raw (~3 s per visit).
 
     `hr_sources`: visit_id -> HR source (`prepare.hr.read_hr_sources`); every candidate must be listed.
+    `overrides`: per-visit fixes from `prep_overrides.csv` (Fitdays row, age source); validated here.
     """
     refs, candidates = candidate_refs(raw_root)
     unlisted = sorted(ref.visit_id for ref in candidates if ref.visit_id not in hr_sources)
     if unlisted:
         raise ValueError(f"candidate visits without HR rows in inclusion.csv: {unlisted}")
+    check_overrides(overrides, refs, candidates)
     annotations = load_annotations()
     participant_dirs = dict.fromkeys(ref.path.parent for ref in candidates)
     fitdays: dict[Path, Loaded] = {d: load_participant_fitdays(d) for d in participant_dirs}
-    smm = candidate_smm(candidates, fitdays, settings.smm)  # before any visit: raises on an unmatched visit
+    # before any visit: raises on an unmatched visit
+    smm = candidate_smm(candidates, fitdays, settings.smm, overrides.fitdays_rows)
+    ages = override_ages(overrides, refs, annotations, fitdays)
     processed = []
     for number, ref in enumerate(candidates, start=1):
         logger.info("[%d/%d] preparing %s", number, len(candidates), ref.visit_id)
         visit = load_visit(ref, annotation_for(ref, annotations), fitdays[ref.path.parent])
-        processed.append(prepare_visit(visit, refs, settings, hr_sources[ref.visit_id], smm[ref.visit_id]))
+        processed.append(prepare_visit(visit, refs, settings, hr_sources[ref.visit_id], smm[ref.visit_id],
+                                       ages.get(ref.visit_id, math.nan)))
     return processed

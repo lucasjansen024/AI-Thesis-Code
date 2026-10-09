@@ -6,7 +6,7 @@
   (header cell after "Test date", `31/07/2024`). Several participants were measured twice on one day, so
   same-day rows are narrowed by the Fitdays `Visit` label (= the raw visit folder) where the file has one; a
   single same-day row whose label names another visit fails the cross-check. No row, or no unique row, raises
-  with the visit named.
+  with the visit named, unless `prep_overrides.csv` names the visit's row (`fitdays_row`).
 - `smm="per_visit"`: the visit's own SMM. `"participant_mean"`: the mean of the per-visit SMM over the
   participant's candidate visits, so one SMM per participant.
 - The static group is present on every grid second when both values exist, else on none.
@@ -134,8 +134,34 @@ def match_fitdays_row(fitdays: pd.DataFrame, visit: SmmVisit) -> pd.Series:
     return row
 
 
-def fitdays_smm_kg(fitdays: pd.DataFrame, visit: SmmVisit) -> float:
-    row = match_fitdays_row(fitdays, visit)
+def parse_fitdays_datetime(value: object) -> datetime:
+    if isinstance(value, datetime):
+        return value
+    text = str(value).strip()
+    for fmt in FITDAYS_DATE_FORMATS:
+        try:
+            return datetime.strptime(text, fmt)
+        except ValueError:
+            continue
+    raise ValueError(f"unreadable Fitdays date-time {value!r} (formats {list(FITDAYS_DATE_FORMATS)})")
+
+
+def fitdays_row_at(fitdays: pd.DataFrame, visit: SmmVisit, cell: str) -> pd.Series:
+    """The Fitdays row whose date-time cell is `cell` (a `prep_overrides.csv` fitdays_row override)."""
+    wanted = parse_fitdays_datetime(cell)
+    raw = fitdays[_column(fitdays, FITDAYS_DATE_COLUMNS)]
+    stamps = raw.map(lambda value: parse_fitdays_datetime(value) if pd.notna(value) else None)
+    rows = fitdays[stamps == wanted]
+    if len(rows) != 1:
+        raise ValueError(f"{visit.visit_id}: override fitdays_row {cell!r} matches {len(rows)} Fitdays rows")
+    logger.info("%s: SMM from the overridden Fitdays reading %s (test date %s)", visit.visit_id, cell,
+                visit.test_date.isoformat())
+    return rows.iloc[0]
+
+
+def fitdays_smm_kg(fitdays: pd.DataFrame, visit: SmmVisit, row_cell: str | None = None) -> float:
+    """SMM (kg) from the visit's same-day Fitdays row, or from the row named by an override."""
+    row = match_fitdays_row(fitdays, visit) if row_cell is None else fitdays_row_at(fitdays, visit, row_cell)
     skeletal_pct = fitdays_number(row[_column(fitdays, FITDAYS_SKELETAL_COLUMNS)])
     weight_kg = fitdays_number(row[_column(fitdays, FITDAYS_WEIGHT_COLUMNS)])
     smm = skeletal_pct / PERCENT * weight_kg
@@ -145,17 +171,26 @@ def fitdays_smm_kg(fitdays: pd.DataFrame, visit: SmmVisit) -> float:
     return smm
 
 
-def participant_smm(fitdays: pd.DataFrame, visits: Sequence[SmmVisit], mode: str) -> dict[str, float]:
-    """visit_id -> SMM (kg) for one participant's visits: per visit, or their mean (`participant_mean`)."""
-    per_visit = {v.visit_id: fitdays_smm_kg(fitdays, v) for v in visits}
+def participant_smm(fitdays: pd.DataFrame, visits: Sequence[SmmVisit], mode: str,
+                    fitdays_rows: Mapping[str, str] | None = None) -> dict[str, float]:
+    """visit_id -> SMM (kg) for one participant's visits: per visit, or their mean (`participant_mean`).
+
+    `fitdays_rows`: visit_id -> Fitdays date-time cell, overriding the same-day match (`prep_overrides.csv`).
+    """
+    rows = fitdays_rows or {}
+    per_visit = {v.visit_id: fitdays_smm_kg(fitdays, v, rows.get(v.visit_id)) for v in visits}
     if mode != SMM_PARTICIPANT_MEAN:
         return per_visit
     mean = float(np.mean(list(per_visit.values())))
     return {visit_id: mean for visit_id in per_visit}
 
 
-def candidate_smm(candidates: Sequence[VisitRef], fitdays: Mapping[Path, Loaded], mode: str) -> dict[str, float]:
-    """visit_id -> SMM (kg) for every candidate (reads each CPET test date). Raises on the first unmatched visit."""
+def candidate_smm(candidates: Sequence[VisitRef], fitdays: Mapping[Path, Loaded], mode: str,
+                  fitdays_rows: Mapping[str, str] | None = None) -> dict[str, float]:
+    """visit_id -> SMM (kg) for every candidate (reads each CPET test date). Raises on the first unmatched visit.
+
+    `fitdays_rows`: per-visit Fitdays row overrides (`prep_overrides.csv`); all other visits match by date.
+    """
     by_participant: dict[Path, list[SmmVisit]] = defaultdict(list)
     for ref in candidates:
         cpet_path = choose_cpet_file(ref.path).selected
@@ -169,7 +204,7 @@ def candidate_smm(candidates: Sequence[VisitRef], fitdays: Mapping[Path, Loaded]
         if not loaded.ok:
             raise ValueError(f"{participant_dir.name}: no Fitdays data ({loaded.error or 'file missing'}) for "
                              f"{[v.visit_id for v in visits]}")
-        smm = {**smm, **participant_smm(loaded.data, visits, mode)}
+        smm = {**smm, **participant_smm(loaded.data, visits, mode, fitdays_rows)}
     return smm
 
 
