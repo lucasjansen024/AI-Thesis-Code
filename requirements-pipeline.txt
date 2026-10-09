@@ -1,7 +1,5 @@
 # Aim 1 pipeline (`pipeline/`, plus `inventory/` for loading raw data). One venv; legacy requirements.txt (TF 2.15) is separate.
-#
-# TO PIN: these are the packages, not yet the exact versions. Replace each line with the version from
-# `pip freeze` in the project venv (torch there: 2.14.1+xpu) and commit the pinned file.
+# Pinned from the project venv's `pip freeze` (Windows, Python 3.11.0, Intel Arc B580), 9 Oct 2026.
 #
 # torch: Intel Arc (B580) XPU wheel from the XPU index:
 #   pip install torch==2.14.1+xpu --index-url https://download.pytorch.org/whl/xpu
@@ -10,14 +8,15 @@
 # and keep everything below unchanged.
 --extra-index-url https://download.pytorch.org/whl/xpu
 torch==2.14.1+xpu
-numpy
-pandas
-pyarrow
-# raw-data loading through inventory/ (CPET/NIRS .xlsx, Fitdays old-format .xls)
-openpyxl
-xlrd
+numpy==2.4.6
+pandas==3.0.6
+pyarrow==25.0.1
+# raw-data loading through inventory/ (CPET/NIRS .xlsx, Fitdays old-format .xls); plots (imported by main.py)
+openpyxl==3.1.5
+xlrd==2.0.2
+matplotlib==3.11.2
 # evaluation (slice 8) and the legacy-comparison tests (src2_training_ready/analysis.py imports statsmodels, scipy)
-pingouin
-scipy
-statsmodels
-pytest
+pingouin==0.7.0
+scipy==1.17.1
+statsmodels==0.15.0
+pytest==9.1.1
