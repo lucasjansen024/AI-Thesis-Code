@@ -7,6 +7,7 @@ This document describes the methodology **as the code implements it**: data, pre
 | **Last updated** | 9 Oct 2026 |
 | **Code state** | branch `Gies`, HEAD `7bd3739` (working tree differs only by line endings) |
 | **Stage** | Aim 1 implemented and accepted; LOSO training-settings pilot running; full Aim 1 runs not started; Aim 2 not approved |
+| **Target journals** | *Journal of Sport and Health Science* (JSHS) or *Sports Medicine* (see `docs/paper/README.md` for what this means for the writing) |
 | **Terms** | as defined in [`CONTEXT.md`](../CONTEXT.md) (*cohort, participant, protocol, visit, unit, sensor group, shared mask, domain, configuration, fold, run, seed, trajectory* …) |
 | **Related** | Approved proposal: [`AIM1_IMPLEMENTATION_HANDOFF.md`](AIM1_IMPLEMENTATION_HANDOFF.md) · Requirement → module map: [`MAPPING.md`](MAPPING.md) |
 
@@ -69,15 +70,27 @@ Entry point: `main.py`, where runs are picked by (un)commenting calls. Run defin
 |---|---|---|
 | Participants | 14: `G01`, `G03`–`G15` (P2 dropped out) | 13: `L01`–`L10`, `L12`–`L14` |
 | Sex | 8 M, 6 F | 8 M, 5 F |
-| Age (y) | 25.8 ± 3.2 ¹ | 25.0 ± 2.6 (22–31) ¹ |
-| Height (cm) | 180 ± 9 ¹ | 178.1 ± 9.8 ¹ |
-| Body mass (kg) | 74.2 ± 9.5 ¹ | 70.1 ± 13.5 ¹ |
-| Peak V̇O₂ | 3.47 ± 0.62 L·min⁻¹; 46.9 ± 7.1 mL·kg⁻¹·min⁻¹ ¹ | 3137 ± 831 mL·min⁻¹; 44.1 ± 7.3 mL·kg⁻¹·min⁻¹ ¹ |
+| Age (y) ¹ | 25.7 ± 3.4 (22.3–31.6) | 25.4 ± 2.5 (22.7–31.1) |
+| Height (cm) ¹ | 180.2 ± 9.3 | 178.0 ± 9.9 |
+| Body mass (kg) ² | 74.0 ± 9.9 | 69.9 ± 13.6 |
+| SMM (kg) ² | 30.7 ± 5.1 (21.0–39.6) | 29.9 ± 6.1 (21.6–39.4) |
+| Peak V̇O₂ ³ | 3.47 ± 0.64 L·min⁻¹; 47.0 ± 7.4 mL·kg⁻¹·min⁻¹ | 3.11 ± 0.87 L·min⁻¹; 44.1 ± 7.3 mL·kg⁻¹·min⁻¹ |
+| Peak power ³ (W) | 348 ± 64 | 298 ± 87 |
+| GET ³ | 2.22 ± 0.38 L·min⁻¹; 153 ± 31 W | 2.10 ± 0.47 L·min⁻¹; 142 ± 41 W |
+| Ramp rate (W·min⁻¹) | 20 (1), 25 (6), 30 (6), 35 (1) | 20 (4), 25 (4), 30 (5) |
+| Ramp duration ⁴ (min) | 11.5 ± 1.3 (8.9–13.2) | 10.4 ± 1.9 (8.0–13.5) |
 | Ethics | NES ethics committee, request #240302 | VU Faculty of Behavioural and Movement Sciences VCWE, file VCWE-2026-113 |
 | Protocols (visits) | Ramp, Easy, Medium, Hard | Ramp, PRBS, Interval, Step |
 | Candidate visits | 55 (G14 Medium never recorded) | 52 |
 
-¹ From the Gies draft and the Lucas thesis, computed by the legacy pipelines. **[PENDING]** Recompute for the paper from the harmonised data (participant table from CPET headers + Fitdays; peak V̇O₂ with the 30-s rule of §11.3). Note that 7 Lucas ramps were analysed on 10-s averaged V̇O₂ in the legacy code (§3.1), so the Lucas peak V̇O₂ may change.
+Pooled (n = 27; 16 M, 11 F): age 25.6 ± 2.9 y, height 179.2 ± 9.5 cm, body mass 72.0 ± 11.8 kg, SMM 30.3 ± 5.5 kg, peak V̇O₂ 3.30 ± 0.77 L·min⁻¹ (45.6 ± 7.4 mL·kg⁻¹·min⁻¹), peak power 324 ± 79 W, GET 2.16 ± 0.42 L·min⁻¹ (147 ± 36 W; 66 ± 6 % of peak V̇O₂). Mean ± SD (range), computed 9 Oct 2026 (scratch computation, not part of the pipeline):
+
+¹ CPET header of the ramp visit (`outputs/inventory/inventory_visits.csv`).
+² Fitdays reading matched to the ramp visit (same file); SMM = skeletal-muscle % × weight. Body mass is the BIA-scale weight (the Gies draft's 74.2 ± 9.5 kg used a separate lab scale).
+³ The per-participant ramp analysis sheets `data/raw/<cohort>/<P>/Ramp/MRT estimation <P>.xlsx` (the values that prescribed the intensities). Peak V̇O₂ = highest 30-s average of 10-s averaged data; relative peak uses the BIA-scale weight. Matches the original reports (Gies draft 3.47 L·min⁻¹, 348 W, GET 2.22 L·min⁻¹ / 153 W; Lucas thesis 297 W, GET 2.10 L·min⁻¹ / 142 W; Lucas thesis peak V̇O₂ 3.14 ± 0.83 differs slightly).
+⁴ From the end of the 30-W warm-up (360 s) to the last breath with cadence ≥ 60 rpm.
+
+Peak V̇O₂ is not recomputed with the pipeline's own 30-s rule (§11.3) because the characterisation should use the values that prescribed the protocols.
 
 **IDs.** `participant_id` = cohort letter + original study number, zero-padded (`G08`). `visit_id` = `<participant_id>_<protocol>` (`G08_Medium`). The raw folder a visit came from is its `source_visit` (`Medium2`). Original numbers are kept so IDs map to lab records (`inventory/catalog.py`).
 
@@ -92,15 +105,23 @@ All visits: 2 min seated rest on the ergometer, then a warm-up, then the exercis
 | both | **Ramp** | 4 min at 30 W | linear ramp 20, 25, 30 or 35 W·min⁻¹ (chosen per participant) to task failure (cadence < 60 rpm) | 120 / 360 / last breath with cadence ≥ 60 rpm | 1 (`visit`) |
 | Gies | **Easy** (L→M) | 3.5 min PRBS at the visit's levels | 2 × 16-min PRBS, 25 W ↔ 90 % GET | 120 / 330 / 2250 | 2 (`rep1` 330–1290, `rep2` 1290–2250) |
 | Gies | **Medium** (L→H) | as Easy | 2 × 16-min PRBS, 25 W ↔ Δ30 % | 120 / 330 / 2250 | 2 |
-| Gies | **Hard** (M→H) | as Easy | 2 × 16-min PRBS, GET ¹ ↔ Δ30 % | 120 / 330 / 2250 | 2 |
+| Gies | **Hard** (M→H) | as Easy | 2 × 16-min PRBS, GET ↔ Δ30 % | 120 / 330 / 2250 | 2 |
 | Lucas | **PRBS** | 3.5 min at 80 % GET (constant) | 2 × 15.5-min PRBS, 25 W ↔ Δ40 %, 30-s bits | 120 / 330 / 2190 | 2 (`rep1` 330–1260, `rep2` 1260–2190) |
 | Lucas | **Interval** | 3.5 min at 80 % GET | 10 × (2 min 25 W + 1 min Δ70 %) + 1 min 25 W | 120 / 330 / 2190 | 1 |
 | Lucas | **Step** | 3.5 min at 80 % GET | 6 min 80 % GET → 6 min Δ30 % → 6 min 80 % GET → 3 min Δ60 % → 5 min 25 W → 5 min 60 % GET | 120 / 330 / 2190 | 1 |
 
-¹ The Gies draft writes "GET and Δ30 %" in the protocol text and "90 % GET" in the results. **[PENDING]** Confirm the Hard low level from the xml files.
+All levels verified against the ergometer xml files (9 Oct 2026): Gies Hard low = GET (e.g. G01 179 W = GET 178.9 W; Easy high 161 W = 90 % GET). Lucas warm-up = 80 % GET in PRBS, Interval and Step (L01 139 W); PRBS high = Δ40 %; Interval high = Δ70 %; Step levels = 80 % GET, Δ30 %, 80 % GET, Δ60 %, 25 W, 60 % GET.
 
-- Gies PRBS repetition: 960 s = 32 × 30-s units; Lucas: 930 s = 31 × 30-s units (`inventory/catalog.py: NOMINAL_TIMELINES`).
-- Gies visit order: ramp first, then the three PRBS visits in random order. Lucas: ramp first, then PRBS, Interval and Step in randomised order.
+**How the intensities were derived** (both cohorts, same spreadsheet template `MRT estimation <P>.xlsx` and `GET Estimation Plots <P>.png`, on 10-s averaged ramp data):
+- GET (as V̇O₂) by visual inspection of V̇O₂ vs V̇CO₂ (V-slope), V̇E/V̇O₂, V̇E/V̇CO₂, PetO₂, PetCO₂ and V̇E vs V̇O₂/V̇CO₂.
+- Peak V̇O₂ = highest 30-s average; peak power from the ramp.
+- A linear regression of V̇O₂ on time over the ramp, and the mean response time MRT = (baseline V̇O₂ of the last 60 s of 30-W cycling − intercept)/slope (mean 36 ± 19 s), map any V̇O₂ to ramp time; subtracting the MRT and applying the ramp rate gives the power.
+- Δx % is defined on V̇O₂: GET + x % × (peak V̇O₂ − GET), then converted to power as above. Fractions of GET (90 %, 80 %, 60 %) are fractions of the GET power.
+
+- Gies PRBS repetition: 960 s of 30-s units (runs 30–90 s); the warm-up is the sequence's first 210 s at the same levels. Lucas: 930 s = 31 × 30-s units (runs 30–150 s) (`inventory/catalog.py: NOMINAL_TIMELINES`; xml files).
+- Visit order (CPET test dates): the ramp was the first visit for all 27 participants; the other visits followed in random order.
+- **Visit spacing.** Gies: all four visits within 1–23 days (median span 8 days); 10 pairs of visits were on the same day, 2.2–7.6 h apart (G03, G04 and G05 did all four visits in 2 days, two per day; G06, G08, G13 and G14 had one same-day pair). Lucas: 9–39 days in total, ≥ 1 day between visits.
+- **Laboratory conditions** (CPET header): Gies 19.5 ± 0.6 °C (19–21), 58 ± 3 % RH; Lucas 19.0 ± 1.2 °C (18–22), 50 ± 8 % RH. Tests between 09:00 and 19:30.
 - **Repeated visit:** G08 Medium and G09 Hard were repeated after a partial failure; the complete visits (`Medium2`, `Hard2`) are used. **Failed visit:** G13 FailedRamp, repeated as G13 Ramp, never used (`inventory/catalog.py: SUPERSEDED_VISITS, FAILED_VISITS`).
 - Phases and units come from the nominal timeline, not from the cart's phase labels (`pipeline/prepare/grid.py`).
 
@@ -109,7 +130,7 @@ All visits: 2 min seated rest on the ergometer, then a warm-up, then the exercis
 | Sensor | Device | Signals used | Native rate | Role |
 |---|---|---|---|---|
 | Metabolic cart | Cosmed Quark CPET | V̇O₂ (target); chest-strap HR (backup HR source only); header: sex, age, protocol name, test date | breath-by-breath | ground truth |
-| Chest strap | Tymewear VitalPro | HR (≈1 Hz series); V̇E and BR (breath-by-breath columns) | ≈1 Hz / per breath | inputs HR, VENT |
+| Chest strap | Tymewear VitalPro | HR (1 Hz series); V̇E and BR (breath-by-breath columns, one breath per ~2.5 s) | 1 Hz / per breath | inputs HR, VENT |
 | NIRS | Artinis PortaMon (Gies: original, 1 receiver, 10 Hz file; Lucas: MKIII, 100 Hz file), right vastus lateralis | TSI (%), O₂Hb and HHb of channel Tx3 | exported at 10 Hz (all 110 files) | input NIRS |
 | Ergometer | Monark LC7TT | protocol definition (xml), not measured power | — | input WR |
 | BIA scale | Sacoma smart scale (Fitdays app) | skeletal-muscle %, body weight, measured before each visit | per visit | input ANTHRO |
@@ -210,7 +231,7 @@ Legacy faults this fixes: first-keyword match picked the 10-s V̇O₂ export for
 - **Overrides** (`inventory/inclusion/prep_overrides.csv`, part of the cache key):
   - L14 PRBS: no Fitdays reading on the test day (15/04/2026) → nearest earlier reading (09/04, 08:28).
   - L14 Interval: two readings on the day (0.09 kg apart) → the first (10:11).
-  - L14 Interval: age from L14 PRBS (header shows another participant's profile: age 5.4 y younger, L13's height). **[PENDING]** Confirm with Lucas.
+  - L14 Interval: age from L14 PRBS. The wrong participant profile (L13) was selected in the CPET software for this visit; the recorded data are L14's (confirmed with Lucas, 9 Oct 2026). Sex is the same for both, and height is not used, so the age override is the only correction needed.
 
 ### 3.9 Processed visit table
 
@@ -281,7 +302,7 @@ Partial: G04 Hard rep 2 (cart recording stops at ~1355 s; V̇O₂ gap 894 s), G0
 
 HR source over 107 visits: 97 Tymewear, 5 CPET strap, 5 none.
 
-Differences from the proposal's expected exclusions (≈ 44 of 56): see `MAPPING.md` §8. Target-second counts per visit × unit will be in `summary/targets.csv` after the first full `evaluate` **[PENDING: fill in totals]**.
+Differences from the proposal's expected exclusions (≈ 44 of 56): see `MAPPING.md` §8. **Target seconds (shared mask):** 157,382 s (43.7 h) of 168,976 exercise seconds: Gies 76,933 (Ramp 5,925; Easy 23,030; Medium 23,979; Hard 23,999), Lucas 80,449 (Ramp 8,061; PRBS 24,095; Interval 24,146; Step 24,147). The presence rule removes only 205 s from valid units (31 units, 1–32 s each, at recording ends). Source: `outputs/runs/smoke/summary/targets.csv` (the smoke run applies the same shared mask to every cached visit); `folds.csv` agrees (G07 fold: 154,510 train + 2,872 test). Re-check against `A1_pooled/summary/targets.csv`.
 
 ### 4.5 Target definition and masks
 
@@ -523,15 +544,11 @@ Each was decided by the developer and is recorded in `MAPPING.md`. The paper mus
 |---|---|---|---|
 | P1 | Training setting (lr × epochs) | from `outputs/pilot/decision.md` | full runs |
 | P2 | Statistics (§12) | random-effects structure; carry-forward rule; TOST margin confirm | paper results |
-| P3 | L14 Interval identity (header shows another participant's profile) | confirm with Lucas | — |
 | P4 | Tx3 = 40 mm | check OxySoft optode template or ask Artinis; or switch to `mean3` | — |
-| P5 | Gies Hard low level (GET vs 90 % GET) | read from xml | Methods text |
-| P6 | Participant characteristics (pooled, harmonised) | compute from CPET headers/Fitdays + harmonised VO₂peak | Methods text |
-| P7 | GET method for Lucas cohort; Lucas visit spacing | ask Lucas | Methods text |
+| P7 | Details not in the repo: pre-test instructions for Gies (Lucas: no heavy exercise/alcohol 24 h, no caffeine that day, 2 h fasting); cart chest-strap model; occlusion protocol for Gies; ergometer and Artinis company cities | ask the cohort owners | Methods text |
 | P8 | Run `per_config` sensitivity runs? | optional | — |
 | P9 | `Subsample(fraction, seed)` hook (Aim 2a/2b) | documented in MAPPING/spec but missing in code; implement when Aim 2 is approved, or correct the docs | Aim 2 |
 | P10 | No TensorFlow ↔ PyTorch numerical check of the ported TCN | add one or state as limitation | — |
-| P11 | Target-second totals | from `summary/targets.csv` | Methods text |
 
 ---
 
@@ -544,6 +561,8 @@ Each was decided by the developer and is recorded in `MAPPING.md`. The paper mus
 - **Cleaning bridges holes:** after outlier rejection, NaN medians are linearly bridged; only raw-breath spacing can mark a second absent.
 - **Shared mask** removes a few targets even for configurations that do not use the missing group (e.g. last seconds of VENT in 10 Lucas visits).
 - **Partial visits:** G04 Hard and G07 Medium contribute one repetition each.
+- **Same-day visits (Gies):** 10 pairs of visits were performed on the same day, 2.2–7.6 h apart. Prior exercise can alter V̇O₂ kinetics, so these second visits may differ physiologically; it affects data, not the pipeline.
+- **Intensity prescription** used 10-s averaged ramp data and a visual GET; relative intensities may not be equivalent across participants.
 - **Determinism** holds on the same device and software only.
 - **Small cohorts** (27 participants; 12–26 training participants per fold), young healthy adults, laboratory cycling only.
 - **BIA-derived SMM** has limited accuracy.
@@ -556,6 +575,7 @@ Each was decided by the developer and is recorded in `MAPPING.md`. The paper mus
 | Date | Change |
 |---|---|
 | 9 Oct 2026 | Document created from the code at `7bd3739`, `MAPPING.md`, the spec, the review and progress logs. Pilot running. |
+| 9 Oct 2026 | Target journals noted (JSHS or Sports Medicine). Participant characteristics computed (§2.1) from the inventory and the per-participant ramp sheets. Protocol levels verified against the xml files: Gies Hard low = GET (P5 closed). Intensity derivation, visit spacing and lab conditions added (§2.2). L14 Interval: wrong CPET profile confirmed by Lucas, age override sufficient (P3 closed). Target-second totals added (§4.4; P11 closed). Same-day visit and intensity limitations added. |
 
 ---
 
