@@ -1,0 +1,4 @@
+visit_id,field,value,note
+L14_PRBS,fitdays_row,08:28 09/04/2026,No Fitdays reading on the test day (15/04/2026); nearest earlier reading used (dev 9 Oct 2026)
+L14_Interval,fitdays_row,10:11 22/04/2026,Two readings on the test day (10:11 and 10:12; SMM 0.09 kg apart); the first is used (dev 9 Oct 2026)
+L14_Interval,age_from_visit,L14_PRBS,CPET header carries P13's profile (age 5.4 y younger; L13's height); age from L14's nearest earlier visit (dev 9 Oct 2026)
