@@ -1,0 +1,587 @@
+# Methodology as implemented (living document)
+
+This document describes the methodology **as the code implements it**: data, preprocessing, inclusion, model, training, pilot, runs and evaluation. Keep it in step with the code; the paper's Methods section is drafted from it (`docs/paper/02_methods.md`).
+
+| | |
+|---|---|
+| **Last updated** | 9 Oct 2026 |
+| **Code state** | branch `Gies`, HEAD `7bd3739` (working tree differs only by line endings) |
+| **Stage** | Aim 1 implemented and accepted; LOSO training-settings pilot running; full Aim 1 runs not started; Aim 2 not approved |
+| **Terms** | as defined in [`CONTEXT.md`](../CONTEXT.md) (*cohort, participant, protocol, visit, unit, sensor group, shared mask, domain, configuration, fold, run, seed, trajectory* …) |
+| **Related** | Approved proposal: [`AIM1_IMPLEMENTATION_HANDOFF.md`](AIM1_IMPLEMENTATION_HANDOFF.md) · Requirement → module map: [`MAPPING.md`](MAPPING.md) |
+
+**How to maintain this file**
+
+- When a decision changes, edit the section that describes it, then add a line to the [change log](#17-change-log).
+- Items still open are marked **[PENDING]** and listed in [§15](#15-pending-decisions). When one is decided, remove the marker in the text and move the row in §15 to the change log.
+- Code references (`file:line` or `module.function`) point to the place to check when updating. Line numbers drift; function names are the stable anchor.
+- Deviations from the approved proposal are collected in [§14](#14-departures-from-the-approved-aim-1-proposal). The paper must report every row there.
+
+---
+
+## Contents
+
+1. [Study overview](#1-study-overview)
+2. [Cohorts, protocols and sensors](#2-cohorts-protocols-and-sensors)
+3. [Data preparation](#3-data-preparation)
+4. [Data validity and inclusion](#4-data-validity-and-inclusion)
+5. [Model inputs: domains and configurations](#5-model-inputs-domains-and-configurations)
+6. [Cross-validation folds and scaling](#6-cross-validation-folds-and-scaling)
+7. [Model architecture](#7-model-architecture)
+8. [Training procedure](#8-training-procedure)
+9. [Training-settings pilot](#9-training-settings-pilot)
+10. [Aim 1 runs](#10-aim-1-runs)
+11. [Evaluation and outputs](#11-evaluation-and-outputs)
+12. [Planned statistics (not implemented)](#12-planned-statistics-not-implemented)
+13. [Reproducibility, provenance and compute](#13-reproducibility-provenance-and-compute)
+14. [Departures from the approved Aim 1 proposal](#14-departures-from-the-approved-aim-1-proposal)
+15. [Pending decisions](#15-pending-decisions)
+16. [Known limitations and caveats](#16-known-limitations-and-caveats)
+17. [Change log](#17-change-log)
+- [Appendix A: the 46 configurations](#appendix-a-the-46-configurations)
+- [Appendix B: Aim 2 placeholder](#appendix-b-aim-2-placeholder)
+
+---
+
+## 1. Study overview
+
+Two master's-thesis datasets are re-analysed with one harmonised pipeline. Earlier results from either thesis are **not** reused; both cohorts are rebuilt from raw files.
+
+- **Target:** second-by-second pulmonary oxygen uptake (V̇O₂, mL·min⁻¹), measured breath-by-breath by a metabolic cart.
+- **Inputs:** ergometer work rate, wearable chest-strap signals (HR, V̇E, BR), NIRS muscle oxygenation (TSI or Hb-diff), anthropometrics (sex, skeletal muscle mass).
+- **Model:** one causal temporal convolutional network (TCN), fixed architecture and fixed training procedure for every run.
+- **Aim 1 (approved, implemented):** which input modalities, alone and combined, give the best continuous V̇O₂ prediction. 46 input configurations × leave-one-subject-out (LOSO) folds × 5 seeds, trained on the pooled dataset, with within-cohort runs as reference.
+- **Aim 2 (not approved):** generalisation to unseen intensities, protocols and cohorts. See [Appendix B](#appendix-b-aim-2-placeholder).
+
+**Data flow (code):**
+raw files → `inventory/` (file choice, synchronisation, per-signal metrics) → `inventory/build_inclusion.py` → committed `inventory/inclusion/inclusion.csv` (validity verdicts)
+raw files → `pipeline/prepare/` (per-visit 1 Hz table) → npz cache → join `inclusion.csv` → target mask → LOSO fold (scalers, target indices) → one packed training job per fold → standalone models → fold outputs → `evaluate(run)` → `summary/`.
+
+Entry point: `main.py`, where runs are picked by (un)commenting calls. Run definitions are frozen dataclasses in `pipeline/runs.py`; there is no YAML or CLI.
+
+---
+
+## 2. Cohorts, protocols and sensors
+
+### 2.1 Cohorts and participants
+
+| | Cohort **Gies** (2024) | Cohort **Lucas** (2026) |
+|---|---|---|
+| Participants | 14: `G01`, `G03`–`G15` (P2 dropped out) | 13: `L01`–`L10`, `L12`–`L14` |
+| Sex | 8 M, 6 F | 8 M, 5 F |
+| Age (y) | 25.8 ± 3.2 ¹ | 25.0 ± 2.6 (22–31) ¹ |
+| Height (cm) | 180 ± 9 ¹ | 178.1 ± 9.8 ¹ |
+| Body mass (kg) | 74.2 ± 9.5 ¹ | 70.1 ± 13.5 ¹ |
+| Peak V̇O₂ | 3.47 ± 0.62 L·min⁻¹; 46.9 ± 7.1 mL·kg⁻¹·min⁻¹ ¹ | 3137 ± 831 mL·min⁻¹; 44.1 ± 7.3 mL·kg⁻¹·min⁻¹ ¹ |
+| Ethics | NES ethics committee, request #240302 | VU Faculty of Behavioural and Movement Sciences VCWE, file VCWE-2026-113 |
+| Protocols (visits) | Ramp, Easy, Medium, Hard | Ramp, PRBS, Interval, Step |
+| Candidate visits | 55 (G14 Medium never recorded) | 52 |
+
+¹ From the Gies draft and the Lucas thesis, computed by the legacy pipelines. **[PENDING]** Recompute for the paper from the harmonised data (participant table from CPET headers + Fitdays; peak V̇O₂ with the 30-s rule of §11.3). Note that 7 Lucas ramps were analysed on 10-s averaged V̇O₂ in the legacy code (§3.1), so the Lucas peak V̇O₂ may change.
+
+**IDs.** `participant_id` = cohort letter + original study number, zero-padded (`G08`). `visit_id` = `<participant_id>_<protocol>` (`G08_Medium`). The raw folder a visit came from is its `source_visit` (`Medium2`). Original numbers are kept so IDs map to lab records (`inventory/catalog.py`).
+
+**Excluded data in the archives:** an unrelated 2025 dataset (P01–P10, LP01–LP10) is not a cohort of this study.
+
+### 2.2 Protocols
+
+All visits: 2 min seated rest on the ergometer, then a warm-up, then the exercise phase. Cadence 70–90 rpm. Intensities were prescribed from the participant's ramp test (gas exchange threshold, GET; peak). Δx % = GET + x % × (peak − GET), in power.
+
+| Cohort | Protocol | Warm-up | Exercise phase | Nominal timeline (s): rest end / warm-up end / exercise end | Units |
+|---|---|---|---|---|---|
+| both | **Ramp** | 4 min at 30 W | linear ramp 20, 25, 30 or 35 W·min⁻¹ (chosen per participant) to task failure (cadence < 60 rpm) | 120 / 360 / last breath with cadence ≥ 60 rpm | 1 (`visit`) |
+| Gies | **Easy** (L→M) | 3.5 min PRBS at the visit's levels | 2 × 16-min PRBS, 25 W ↔ 90 % GET | 120 / 330 / 2250 | 2 (`rep1` 330–1290, `rep2` 1290–2250) |
+| Gies | **Medium** (L→H) | as Easy | 2 × 16-min PRBS, 25 W ↔ Δ30 % | 120 / 330 / 2250 | 2 |
+| Gies | **Hard** (M→H) | as Easy | 2 × 16-min PRBS, GET ¹ ↔ Δ30 % | 120 / 330 / 2250 | 2 |
+| Lucas | **PRBS** | 3.5 min at 80 % GET (constant) | 2 × 15.5-min PRBS, 25 W ↔ Δ40 %, 30-s bits | 120 / 330 / 2190 | 2 (`rep1` 330–1260, `rep2` 1260–2190) |
+| Lucas | **Interval** | 3.5 min at 80 % GET | 10 × (2 min 25 W + 1 min Δ70 %) + 1 min 25 W | 120 / 330 / 2190 | 1 |
+| Lucas | **Step** | 3.5 min at 80 % GET | 6 min 80 % GET → 6 min Δ30 % → 6 min 80 % GET → 3 min Δ60 % → 5 min 25 W → 5 min 60 % GET | 120 / 330 / 2190 | 1 |
+
+¹ The Gies draft writes "GET and Δ30 %" in the protocol text and "90 % GET" in the results. **[PENDING]** Confirm the Hard low level from the xml files.
+
+- Gies PRBS repetition: 960 s = 32 × 30-s units; Lucas: 930 s = 31 × 30-s units (`inventory/catalog.py: NOMINAL_TIMELINES`).
+- Gies visit order: ramp first, then the three PRBS visits in random order. Lucas: ramp first, then PRBS, Interval and Step in randomised order.
+- **Repeated visit:** G08 Medium and G09 Hard were repeated after a partial failure; the complete visits (`Medium2`, `Hard2`) are used. **Failed visit:** G13 FailedRamp, repeated as G13 Ramp, never used (`inventory/catalog.py: SUPERSEDED_VISITS, FAILED_VISITS`).
+- Phases and units come from the nominal timeline, not from the cart's phase labels (`pipeline/prepare/grid.py`).
+
+### 2.3 Sensors
+
+| Sensor | Device | Signals used | Native rate | Role |
+|---|---|---|---|---|
+| Metabolic cart | Cosmed Quark CPET | V̇O₂ (target); chest-strap HR (backup HR source only); header: sex, age, protocol name, test date | breath-by-breath | ground truth |
+| Chest strap | Tymewear VitalPro | HR (≈1 Hz series); V̇E and BR (breath-by-breath columns) | ≈1 Hz / per breath | inputs HR, VENT |
+| NIRS | Artinis PortaMon (Gies: original, 1 receiver, 10 Hz file; Lucas: MKIII, 100 Hz file), right vastus lateralis | TSI (%), O₂Hb and HHb of channel Tx3 | exported at 10 Hz (all 110 files) | input NIRS |
+| Ergometer | Monark LC7TT | protocol definition (xml), not measured power | — | input WR |
+| BIA scale | Sacoma smart scale (Fitdays app) | skeletal-muscle %, body weight, measured before each visit | per visit | input ANTHRO |
+
+The cart's own V̇E and respiratory frequency are **never** inputs: they come from the same flow signal as V̇O₂.
+
+---
+
+## 3. Data preparation
+
+Code: `inventory/` (file choice, loading, sync) and `pipeline/prepare/` (features). Output: one processed 1 Hz table per visit, cached (§13).
+
+### 3.1 File selection
+
+`inventory/catalog.py: _choose` keeps the files that pass a preference test and takes the first by name (recording "ambiguous" if several pass).
+
+| Sensor | Rule |
+|---|---|
+| CPET | Breath-by-breath export (`BxB` in name). 10-s averaged exports are never used, even if alone (regex `(?<!\d)10[ _]?s(ec)?(?![a-z])`). Lock files `~$…` ignored. |
+| NIRS | `.xlsx` export; `.oxy4/.oxy5/.txt` ignored. Duplicate columns (L04 Step `TSI%` ×5, identical): fullest kept. |
+| Tymewear | `.csv` containing `VE`. |
+| Protocol xml | Name contains the protocol name; the `PRBSV2 STEP` file in Lucas PRBS folders is ignored. G01 Easy has two candidates; the first is used. |
+| Fitdays | Participant-level file starting with `fitdays` (actually `.xls`). |
+
+Legacy faults this fixes: first-keyword match picked the 10-s V̇O₂ export for 7 Lucas ramps (L03, L05, L06, L07, L10, L13, L14), and lock files.
+
+### 3.2 Synchronisation (CPET clock is the master)
+
+- **Gies Tymewear:** time − `VE_lag`, the per-visit lag hand-annotated in Gies's original config (`docs/Gies/config.py`; 27–3844 s, the large values are clock offsets). Applied to both the 1 Hz series and the breath table.
+- **Lucas Tymewear:** already on the CPET clock (lag 0).
+- **NIRS:** the export's **latest** parsable `XminYY` event marker is the sync point: sample i is at `(i − marker_row)/f + event_s`, f = header "Export sample rate". The latest marker is used because 8 Gies files have earlier markers from aborted attempts (G01 Ramp: first marker would put exercise onset ~360 s late). No manual per-visit corrections. An unsynced export would make NIRS absent (none occur).
+- **Work rate:** reconstructed on the CPET clock from the protocol definition (§3.4).
+
+### 3.3 Time grid and phases
+
+`pipeline/prepare/grid.py: build_grid`
+
+- Integer 1 Hz grid on the CPET clock, t = 0 … exercise_end − 1.
+- `phase`: rest [0, rest_end), warm-up [rest_end, warmup_end), exercise [warmup_end, exercise_end). Rest end = 120 s; warm-up end 330 s (submax) or 360 s (ramp).
+- `unit`: `rep1`/`rep2` for PRBS-type visits, else `visit`; only exercise seconds belong to a unit.
+- **Ramp end** = the last breath with cadence ≥ 60 rpm (`inventory/sensors.py`), i.e. task failure.
+- Rest never enters an input window: the earliest context second is 330 − 187 = 143 s (submax) or 360 − 187 = 173 s (ramp).
+
+### 3.4 Work rate (`WR`)
+
+`pipeline/prepare/wr.py`. The feature is the **ideal protocol work rate** (W), never the measured power, which is logged per breath and inconsistent (ideal vs measured: median |Δ| 0–1 W over exercise in all 28 ramps; legacy prepared ramp WR was 10–21 W off).
+
+- **Submax visits:** step function from the ergometer xml (`ErgoProtocolStep` Time/Load1); W(t) = load of the last step with Time ≤ t. Seconds past the xml end are not present.
+- **Ramps:** from the CPET protocol name (e.g. `VO2max_25Watt`): 0 W for t < 120 s, 30 W until 360 s, then `30 + step × floor((t − 360)/interval)`. Ergometer step patterns: 20 W·min⁻¹ = 1 W/3 s; 25 = 5 W/12 s; 30 = 1 W/2 s; 35 = 7 W/12 s; L04 (`VO2Ramp20W`) = 4 W/12 s. The first increment comes one interval after 360 s (assumed; matches measured power).
+- **G08 Medium2, G09 Hard2** (no xml): the superseded sibling's xml (same CPET protocol).
+- **L04 PRBS** (no xml): another Lucas PRBS xml's timing; rest 0 W; low 25 W; high level and warm-up level = median measured power over those seconds of L04's own CPET file (high 120 W, warm-up 79 W; warm-up median skips 15 s at each edge).
+- Legacy fault fixed: both legacy preparers started the ramp 30 s early.
+
+### 3.5 Breath-by-breath cleaning (V̇O₂, V̇E, BR)
+
+`pipeline/prepare/breath.py` — exact, vectorised port of the legacy helpers; identical for both cohorts (tested against legacy output).
+
+1. Keep breaths with finite time and value; sort by time.
+2. **Outlier rejection:** breath i is removed if |xᵢ − mean(xᵢ₋₅…xᵢ₋₁)| ≥ 3 × SD(xᵢ₋₅…xᵢ₋₁) (sample SD, raw previous 5 breaths; the first 5 breaths are kept).
+3. **5-breath median filter:** centred for V̇O₂ (target), trailing for V̇E and BR (inputs, causal). A window containing a removed breath gives NaN.
+4. **Linear interpolation** to the integer 1 Hz grid between the first and last finite filtered breath.
+5. **Presence:** second t is *present* only if the two raw breaths around it are ≤ 20 s apart (`max_interp_gap_s = 20`) and the interpolated value is finite. Interpolated values across longer gaps exist but are flagged not present.
+
+- V̇O₂: CPET breaths. V̇E, BR: raw Tymewear `VE breath by breath` / `BR breath by breath` columns (never Tymewear's smoothed columns). VENT is present only where both V̇E and BR are present.
+- Side effect (as in legacy): when one of the last breaths is rejected, the trailing median is NaN for the remaining breaths, so VENT is absent in the last 1–11 s of exercise in 10 Lucas submax visits; those final targets drop out of the shared mask.
+
+### 3.6 Heart rate and heart-rate reserve (`HR`, `HRR`)
+
+`pipeline/prepare/hr.py`
+
+- **Source** per visit, from `inclusion.csv` (§4.2): Tymewear HR if it passes the HR check, else the CPET chest strap (G06 Ramp, G06 Easy, G09 Ramp, G11 Easy, G13 Medium), else none (HR absent).
+- HR: no smoothing; linear interpolation to 1 Hz; present where samples are ≤ 20 s apart.
+- **HRR = (HR − HRrest) / (HRpeak − HRrest)**
+  - HRrest = mean 1 Hz HR over present seconds in [0, 120 s) of the **same visit and source**.
+  - HRpeak = **208 − 0.7 × age** (Tanaka) for all participants; age = the visit's CPET header age at full precision.
+  - Override: L14 Interval takes its age from L14 PRBS (its CPET header carries another participant's profile; §3.8).
+- Legacy (both theses) used min/max HR across visits, baked in at preparation.
+
+### 3.7 NIRS (`TSI`, `HBDIFF`)
+
+`pipeline/prepare/nirs.py`
+
+- **TSI:** raw TSI (%), not normalised.
+- **Hb-diff:** O₂Hb − HHb of channel **Tx3**, raw as exported: no occlusion or within-visit normalisation, no baseline correction (`hbdiff_channel = tx3`, `hbdiff_baseline = none`). Tx3 is intended to be the 40-mm source–detector distance (Gies's original choice); **this mapping is unverified** on both devices.
+- Row cleaning: drop all-zero rows (Gies exports often end with one) and a nonphysical first row (|ΔHb| > 150 µM).
+- **10 Hz → 1 Hz:** second t = mean of finite samples in [t, t+1). No interpolation; NIRS present where both TSI and Hb-diff are finite (no gap tolerance).
+- Not used: occlusion calibration, fit factor as a feature, Lucas's native `HbDiff` column, the MKIII short-separation channel (Gies has neither).
+- **Zero point:** no source states when OxySoft zeroes ΔHb; raw Hb-diff carries an arbitrary per-visit (even per-export) offset. Rest means range −5.5 to +7.8 µM against exercise means of −1.8 to −44 µM in 16 checked visits (`outputs/hbdiff_baseline/offsets.csv`). Rest-mean subtraction was judged visually to make little difference, so raw is the default. Flag `hbdiff_baseline = rest_mean` exists.
+
+### 3.8 Anthropometrics (`sex`, `SMM`)
+
+`pipeline/prepare/anthro.py`, `pipeline/prepare/overrides.py`
+
+- **Sex** from the CPET header: male = 1, female = 0; never scaled.
+- **SMM (kg)** = Fitdays skeletal-muscle % × body weight, from the reading matched to the visit by date (CPET test date); same-day readings are disambiguated by the Fitdays `Visit` label. Matching fails loudly. Per visit (`smm = per_visit`).
+- Note: the legacy code and Lucas's thesis used Fitdays "Muscle mass", a different, larger quantity.
+- Age is HRpeak metadata only, never an input.
+- **Overrides** (`inventory/inclusion/prep_overrides.csv`, part of the cache key):
+  - L14 PRBS: no Fitdays reading on the test day (15/04/2026) → nearest earlier reading (09/04, 08:28).
+  - L14 Interval: two readings on the day (0.09 kg apart) → the first (10:11).
+  - L14 Interval: age from L14 PRBS (header shows another participant's profile: age 5.4 y younger, L13's height). **[PENDING]** Confirm with Lucas.
+
+### 3.9 Processed visit table
+
+One row per grid second: `t, phase, unit`, features `WR, HR, HRR, VE, BR, TSI, HBDIFF, sex, SMM`, target `VO2`, and a `present_<group>` flag per sensor group. Built by `pipeline/prepare/visit.py`, cached by `pipeline/cache.py`.
+
+---
+
+## 4. Data validity and inclusion
+
+Validity is decided **once**, outside the training code, and committed as `inventory/inclusion/inclusion.csv`. The pipeline only reads it (`pipeline/inclusion.py`).
+
+### 4.1 Units and sensor groups
+
+- **Unit:** a PRBS repetition (Gies Easy/Medium/Hard, Lucas PRBS), otherwise the visit's whole exercise phase. 161 units (Gies 96, Lucas 65).
+- **Sensor groups:** `VO2`, `WR`, `HR`, `VENT`, `NIRS`, `static` (sex + SMM).
+- A group is valid or invalid for a **whole unit**, never per second: a bad second would also corrupt the next 187 s of input windows.
+- Checks look at the unit's exercise seconds only; warm-up quality never invalidates a unit.
+- `inclusion.csv`: 966 rows = 161 units × 6 groups, with `valid`, `reason`, `decided_by` (`auto`/`review`), `hr_source`.
+
+### 4.2 Layer 1: automatic checks
+
+`inventory/build_inclusion.py` (thresholds at the top of the file), computed from the inventory's per-signal metrics (`inventory/metrics.py`).
+
+| Group | Rule |
+|---|---|
+| all signals | **Missing** if no usable file or no exercise coverage. **Gap rule:** invalid if the longest gap in the unit's exercise window exceeds 20 s (breath signals: inter-breath gap incl. window edges; ≈1 Hz series: longest run of empty seconds). |
+| VO₂ | gap rule on CPET V̇O₂ |
+| WR | valid if the protocol xml / ramp name loaded; named exceptions G08 Medium, G09 Hard (sibling xml), L04 PRBS (rebuilt) |
+| HR | per visit, sources in order Tymewear then CPET; a source passes if present, **span (p95 − p5) ≥ 20 bpm** and **Pearson r vs 30-s smoothed V̇O₂ ≥ 0.5**, both over 0 s → exercise end, and **rest coverage ≥ 80 %** of 0–120 s. First passing source is the visit's HR source; each unit then also needs the gap rule on that source. |
+| VENT | gap rule on Tymewear V̇E and BR |
+| NIRS | gap rule on TSI and Hb-diff, **and** ≥ 95 % of the unit's NIRS samples with **fit factor ≥ 99 %** |
+| static | sex and Fitdays skeletal-muscle % available |
+
+Rationale for the less obvious thresholds:
+- **HR check:** coverage alone misses stuck sensors (e.g. G07 Ramp CPET HR ~118–120 bpm throughout, span 5 bpm, r ≈ 0). The window starts at rest because during Hard PRBS exercise genuine HR barely varies (span < 20 bpm, r ≈ 0.1) and the exercise-only version gave false failures. The final thresholds reproduce Gies's original `HR_source` annotations exactly.
+- **Fit factor 99 % / 95 %:** the fit factor is Artinis's agreement index across the three source–detector distances for TSI; no published threshold exists. Lucas's 99.9 % was a placement check at acquisition; applied per sample it would drop 9 Lucas visits entirely. 99 % removes nothing in Lucas (per-sample range 99.47–100 %) and matches Gies's draft (> 99 %). On current data the rule invalidates no candidate unit.
+- **20-s gap:** legacy interpolated across gaps of any length. The value 20 s is a judgement call.
+
+### 4.3 Layer 2: NIRS review
+
+The developer's visual review (`inventory/inclusion/nirs_review.csv`, 12 rows, NIRS group only). A review **exclude always wins**; a review **include never overrides a failed automatic check**. The original Gies annotations are retired for validity.
+
+- Exclude: G08 Easy rep 1 + 2 (unusable), G07 Hard rep 2 (unusable), G07 Medium rep 1 (warm-up TSI artefact at ~150–280 s enters the input windows of rep 1's first targets).
+- Include (where annotations had excluded): G07 Ramp, G07 Medium rep 2, G11 Easy, G11 Hard rep 1 + 2, G11 Ramp, G15 Ramp (whole ramp; fit factor drops near the end but the unit passes the rule).
+
+### 4.4 Result
+
+| | Visits included (shared mask) | Units valid |
+|---|---|---|
+| Gies | **47 of 55** (G04 Hard rep 1 only; G07 Medium rep 2 only) | 83 of 96 |
+| Lucas | **52 of 52** | 65 of 65 |
+| Total | **99 of 107** | 148 of 161 |
+
+Fully excluded Gies visits and the reason:
+
+| Visit | Failing group(s) |
+|---|---|
+| G06 Ramp | VENT (no Tymewear file) |
+| G07 Ramp | HR (Tymewear missing, CPET HR stuck), VENT (no Tymewear) |
+| G09 Ramp | VENT (no Tymewear file) |
+| G11 Ramp | HR (Tymewear missing, CPET HR stuck), VENT (no Tymewear) |
+| G13 Ramp | HR (Tymewear HR empty, CPET HR stuck) |
+| G13 Easy | HR (Tymewear HR empty, CPET HR stuck) |
+| G07 Hard | HR (Tymewear r = 0.00, no CPET HR); NIRS rep 2 (review) |
+| G08 Easy | NIRS (review) |
+
+Partial: G04 Hard rep 2 (cart recording stops at ~1355 s; V̇O₂ gap 894 s), G07 Medium rep 1 (review).
+
+HR source over 107 visits: 97 Tymewear, 5 CPET strap, 5 none.
+
+Differences from the proposal's expected exclusions (≈ 44 of 56): see `MAPPING.md` §8. Target-second counts per visit × unit will be in `summary/targets.csv` after the first full `evaluate` **[PENDING: fill in totals]**.
+
+### 4.5 Target definition and masks
+
+`pipeline/inclusion.py`. Second t of a visit is a **target** iff:
+1. t is in the exercise phase;
+2. t's unit is valid for every required sensor group;
+3. V̇O₂ is present at t;
+4. every required input group is **present** on all of t − 187 … t − 1 within the same visit.
+
+Context seconds need only be present, not in a valid unit: the warm-up end and an invalid neighbouring repetition can serve as context (G07 Medium: first target t = 1290 s, context 1103–1289 s from rep 1).
+
+- **Shared mask (primary):** required groups = all six. Every configuration in a fold trains and is tested on identical seconds.
+- **`per_config` mask (sensitivity):** required groups = VO₂ + the configuration's own groups (`static` only with ANTHRO). Configurations with bitwise-identical target sets share a training job. With `per_config`, `WR` alone uses all 55 Gies visits.
+
+---
+
+## 5. Model inputs: domains and configurations
+
+`pipeline/domains.py`
+
+| Domain | Token(s) | Features | Sensor | Scaling |
+|---|---|---|---|---|
+| WR | `WR` | work rate | ergometer protocol | min–max |
+| HR | `HR` | HR, HRR | Tymewear (CPET strap backup) | z-score each |
+| VENT | `VENT` | V̇E, BR | Tymewear | z-score each |
+| NIRS | `TSI` **or** `HBDIFF` | TSI or Hb-diff | PortaMon | z-score |
+| ANTHRO | `ANTHRO` | sex, SMM | CPET header, BIA scale | sex none; SMM z-score |
+
+- A domain's features always enter together (HR always with HRR); NIRS enters through exactly one NIRS variable.
+- **Configuration** = non-empty set of time-varying domains, NIRS as at most one variable, ± ANTHRO. ANTHRO never alone.
+- Count: (2³ × 3 − 1) time-varying sets × 2 = **46** (`nirs_exclusive = True`). `False` gives the proposal's 62.
+- IDs join tokens in canonical order WR, HR, VENT, TSI, HBDIFF, ANTHRO (`WR+HR+TSI+ANTHRO`); generated programmatically, ordered by size then canonical order. Full list in [Appendix A](#appendix-a-the-46-configurations).
+- Input dimension: 1 (e.g. `WR`) to 8 (`WR+HR+VENT+TSI+ANTHRO`).
+
+---
+
+## 6. Cross-validation folds and scaling
+
+`pipeline/folds.py`
+
+- **LOSO** in every run: one fold per participant of the run's cohorts; the training set is every included visit of all other participants. Pooled: 27 folds, 26 training participants; Gies: 14 folds, 13; Lucas: 13 folds, 12.
+- No validation set; all non-test participants train.
+- Runtime checks (explicit exceptions): test participant ∉ training set; unique test IDs; scaler-fit rows contain no test-participant row; last gathered window row = t − 1; all inputs and targets finite.
+- **Scalers fit per fold on training participants only:**
+  - V̇O₂ (target): z-score on the training **target** seconds.
+  - Features: on the rows read by at least one training target's window (includes warm-up and context seconds; never crosses a visit; never test data). WR min–max; other continuous features z-score (population SD); sex unscaled.
+  - Applied to the test participant unchanged; predictions inverse-transformed to mL·min⁻¹ before any metric.
+- Aim 2 hook: `Fold(test_participant, train_visits)` accepts an explicit training-visit list. **The `Subsample(fraction, seed)` hook described in `MAPPING.md` §6 and the spec does not exist in the code** (see §15).
+
+---
+
+## 7. Model architecture
+
+`pipeline/TCN.py` — PyTorch port of the legacy Keras TCN with Keras defaults pinned.
+
+- Input: window of 187 s × F features (t − 187 … t − 1). Output: scaled V̇O₂ at t (single value).
+- **Two residual blocks:**
+  - Block 1: three causal dilated Conv1D layers, dilations 1, 2, 4.
+  - Block 2: two causal dilated Conv1D layers, dilations 8, 16.
+  - Every conv: kernel 7, 16 filters, left (causal) zero padding (k − 1)·d.
+  - After every conv: layer normalisation over channels (ε = 1e-3) → ReLU → dropout 0.2 (training only, inverted).
+  - Residual: block output = conv path + 1×1 convolution of the block input (always present, also 16 → 16). No activation after the sum.
+- **Head:** dense layer 16 → 1 on the last time step.
+- **Receptive field:** 1 + (7 − 1) × (1 + 2 + 4 + 8 + 16) = **187 s** (checked against the window length at import).
+- **Initialisation:** Glorot-uniform kernels (fan-in c_in·k, fan-out c_out·k), zero biases, LayerNorm γ = 1, β = 0; drawn from a CPU generator so weights are device-independent.
+- ≈ 8–9 k trainable parameters (7.9 k at F = 1, 8.7 k at F = 8).
+- Implementation note: every 1×1 projection is computed as a matrix product (`pointwise_conv`) because the Intel B580's `Conv1d` backward returned wrong gradients for a 1×1 convolution with one input channel; same function on every device.
+- Earlier descriptions ("5 causal dilated Conv1D layers, residual blocks") describe the same network: 5 dilated convolutions grouped into 2 residual blocks.
+
+---
+
+## 8. Training procedure
+
+`pipeline/fit.py`, `pipeline/train.py`, `pipeline/runs.py`. **One procedure for every run** (pooled, within-cohort, later Aim 2); only the training data differ.
+
+| Setting | Value |
+|---|---|
+| Optimiser | Adam, β = (0.9, 0.999), ε = 1e-7 (Keras), no weight decay, constant learning rate |
+| Learning rate × epochs | **[PENDING pilot]** literal `A1_TRAINING` in `runs.py`; currently 5e-5 × 30 |
+| Batch size | 32, last partial batch kept |
+| Shuffle | on: a new seeded permutation of the training targets every epoch |
+| Loss | MSE on scaled V̇O₂ |
+| Validation set / early stopping | none; all epochs run |
+| Checkpoint | the epoch with the lowest epoch-average **training** loss (batch-size weighted, dropout active, Keras-style), strict `<` (earliest wins ties). Never chosen on test data. |
+| Seeds | 5 (0–4) per configuration × fold; all saved; **no seed selection** |
+| Determinism | `torch.use_deterministic_algorithms(True)`; same job on same device is bit-identical |
+
+**Seeds and random streams** (`provenance.derive_seed` = SHA-256 of the parts):
+- Initial weights: from (seed, configuration ID).
+- Shuffle order: from seed only; one permutation per epoch, shared by all configurations with that seed.
+- Dropout: one generator per packed job, from (run, test participant, mask group).
+- No global seeding of Python/NumPy/torch; all randomness goes through explicit generators.
+
+**Packed training** (efficiency; no effect on the function learned):
+- One job per fold (per identical-mask group under `per_config`) trains all 46 configurations × 5 seeds = K = 230 models at once as grouped convolutions with per-model LayerNorm; each model reads only its own feature columns (channel masks; Glorot uses the true fan-in).
+- Loss = sum of per-model MSEs; parameters are disjoint, so each model gets exactly its own gradient.
+- Training computes only the last output position (strided "last-only" forward; same function and gradients, parity-tested).
+- After training, each model is extracted into a standalone TCN; **all predictions use the standalone models** (full forward, eval mode).
+- Windows are gathered on the device from target indices.
+
+**Per-fold outputs** (`outputs/runs/<run_id>/<participant_id>/`, written to `.tmp` and renamed when complete; finished folds are skipped on rerun):
+- `predictions.parquet`: `run_id, config_id, seed, fold, participant_id, cohort, protocol, visit_id, t_s, work_rate, vo2_true, vo2_pred` (mL·min⁻¹, test participant's target seconds).
+- `visit_metrics.csv`: RMSE, MAE, bias, n seconds per configuration × seed × visit.
+- `epochs.csv`: training loss per epoch and model; `is_best`.
+- `models.pt`: all standalone state dicts + checkpoint epochs.
+- `manifest.json`: see §13.
+
+---
+
+## 9. Training-settings pilot
+
+`pipeline/pilot.py`, `runs.PILOT`. Purpose: choose **one** global learning rate × epochs setting, then fix it for all runs; also measure time per training.
+
+| Arm | Learning rate | Epochs | Read from trajectory |
+|---|---|---|---|
+| R (reference, Lucas's thesis) | 5e-5 | 30 | 5e-5 × 30 |
+| A | 5e-5 | 10 | 5e-5 × 30 (first 10 epochs) |
+| B | 2e-4 | 10 | 2e-4 × 10 |
+| C (Gies's original) | 5e-4 | 1 | 5e-4 × 3 (first epoch) |
+| D | 5e-4 | 3 | 5e-4 × 3 |
+
+- Only three trajectories are trained; with a constant learning rate, an arm with fewer epochs is the prefix of a longer trajectory. A truncated arm is scored at e* = argmin over e ≤ E of the training loss (the same checkpoint rule as §8).
+- **Splits: LOSO** in three families: pooled (27 splits, train on 26), Gies (14, train on 13), Lucas (13, train on 12). 54 splits × 3 trajectories = 162 jobs, ≈ 27 h.
+- **Configurations (5):** `WR`, `WR+HR+VENT+TSI+ANTHRO`, `WR+HR+VENT+HBDIFF+ANTHRO`, `HR+VENT+TSI+ANTHRO`, `HR+VENT+HBDIFF+ANTHRO`. **Seeds:** 0, 1. Shared mask.
+- After every epoch, each model is scored on the held-out participant (RMSE in mL·min⁻¹ per visit).
+- **Aggregation** (`decide`): visit RMSE → participant mean → mean over splits × seeds, per cell; 15 cells = 3 families × 5 configurations.
+- **Rule (advisory):** an arm qualifies in a cell if its RMSE ≤ the cell's best + 10 mL·min⁻¹; choose the fewest-epoch arm that qualifies in all 15 cells (A/B tie → lower mean RMSE); else R. Output: `outputs/pilot/decision.md`.
+- **The rule is not binding:** the developer chooses the setting from the table and copies it into `runs.A1_TRAINING`.
+- **Consequence to report:** under LOSO the held-out participants are the Aim 1 test participants, so the training setting is selected with information from the test folds (see §14).
+- Status (9 Oct 2026): running. **[PENDING]** chosen setting, rationale, time per training.
+
+---
+
+## 10. Aim 1 runs
+
+`pipeline/runs.py`. All: 46 configurations × 5 seeds × LOSO, the one training setting, default `PrepSettings`.
+
+| Run ID | Cohorts | Folds | Mask | Trainings | Status |
+|---|---|---|---|---|---|
+| `A1_pooled` | Gies + Lucas | 27 | shared | 6,210 | not run |
+| `A1_gies` | Gies | 14 | shared | 3,220 | not run |
+| `A1_lucas` | Lucas | 13 | shared | 2,990 | not run |
+| `A1_*_per_config` | as above | 27/14/13 | per_config | as above | sensitivity, optional |
+| `smoke` | both | G07, L04 | shared | 2 configs × 1 seed, 3 epochs | plumbing check only, done |
+
+Total primary: 12,420 trainings in 54 packed jobs. Training-set sizes (participants, target seconds) per fold are reported in `summary/folds.csv`.
+
+---
+
+## 11. Evaluation and outputs
+
+`pipeline/metrics.py`, `pipeline/evaluate.py`. All metrics in float64 on mL·min⁻¹, computed on the test participant's target seconds only. `evaluate(run)` refuses to run if a fold is missing or if any fold's training settings differ from the run's.
+
+### 11.1 Primary metric: RMSE (also MAE, bias)
+
+Per visit (all target seconds of the visit; a PRBS visit covers its valid repetitions): error = predicted − measured; RMSE = √mean(error²); MAE = mean|error|; bias = mean(error).
+
+Aggregation, per configuration:
+1. seconds → **visit** metric (per seed);
+2. visit → **participant**: mean of the participant's visit metrics (per seed);
+3. participant → **seed-averaged** participant value: mean over the 5 seeds (the *seed-averaged metric*; never the metric of the averaged prediction);
+4. reported: **mean ± SD across participants** of the seed-averaged values, and **SD across seeds** of the per-seed configuration means.
+
+### 11.2 Secondary metrics
+
+Per configuration × seed × group, over all target seconds of the group; reported as mean and SD across seeds:
+- **Pearson r** between measured and predicted V̇O₂.
+- **Repeated-measures correlation** r_rm (`pingouin.rm_corr`, subject = participant).
+- **Repeated-measures Bland–Altman** (Bland & Altman 2007, "true value varies"): d = predicted − measured; bias = mean(d) over all seconds; one-way ANOVA of d on participant gives MS_between, MS_within; m̃ = (N² − Σmᵢ²)/((n − 1)N); σ² = max(0, (MS_b − MS_w)/m̃) + MS_w; 95 % LoA = bias ± 1.96σ.
+- No p-values for correlations (~150 k autocorrelated seconds).
+
+### 11.3 VO₂peak (ramps only)
+
+Highest 30-s trailing rolling mean over the ramp visit's target seconds (full windows only), for measured and each seed's predicted V̇O₂. Per visit: diff = predicted − measured peak and |diff|, per seed, then averaged over seeds. Called *VO₂peak* because no plateau criterion is checked.
+
+### 11.4 Breakdowns
+
+Every run: groups `all`, per cohort, per protocol (Ramp, Easy, Medium, Hard, PRBS, Interval, Step).
+
+### 11.5 Summary files (`outputs/runs/<run_id>/summary/`)
+
+- `summary.csv`: per configuration × group: n participants/visits/seeds; RMSE, MAE, bias (mean, SD participants, SD seeds); r_rm, r_p, BA bias and LoA (mean, SD seeds); VO₂peak diff and |diff| (mean, SD participants).
+- `visit_metrics_seedavg.csv`: per configuration × visit, seed-averaged RMSE/MAE/bias (input for the statistics in §12).
+- `predictions_seedavg.parquet`: per-second mean prediction over seeds (for plots and residual analyses; not used for reported metrics).
+- `vo2peak.csv`, `folds.csv` (training-set sizes, wall time), `targets.csv` (exercise and target seconds per visit × unit).
+- No "winner" is selected inside the pipeline.
+
+---
+
+## 12. Planned statistics (not implemented)
+
+From the approved proposal; scripted after the runs on `visit_metrics_seedavg.csv`. **[PENDING]** all items.
+
+- Linear mixed model: `log(RMSE) ~ configuration + protocol + cohort + (1 | participant)` (visit-level, seed-averaged RMSE). Random-effects structure to be justified (a co-author asked about random slopes on the Gies draft).
+- Contrasts of each configuration against `WR` alone, Holm-corrected.
+- Equivalence tests (TOST) against `WR`, margin **±25 mL·min⁻¹**, fixed before results are seen.
+- Rule for carrying configurations forward to Aim 2, written down before looking (e.g. lowest pooled mean RMSE; a simpler configuration within the equivalence margin is preferred).
+
+---
+
+## 13. Reproducibility, provenance and compute
+
+- **Feature cache:** `outputs/cache/processed/<key>/visits.npz` + `meta.json`. Key = SHA-256 of `PrepSettings`, the source code of `pipeline/prepare/` and `inventory/`, the per-visit HR sources and the overrides. Validity verdicts are joined at load, never baked in. Raw files are assumed immutable (not hashed).
+- **Manifest per fold:** git commit + dirty flag, full resolved `Run`, `PrepSettings`, cache key, SHA-256 of `inclusion.csv`, seeds, device, package versions, start/end time, per-epoch wall time, scaler parameters, training-set sizes, checkpoint epochs, packing layout, dropout seed.
+- **Environment:** Python 3.11, PyTorch 2.14.1+xpu, NumPy 2.4.6, pandas 3.0.6, pyarrow 25.0.1, pingouin 0.7.0, SciPy 1.17.1, statsmodels 0.15.0 (`requirements-pipeline.txt`). Legacy TensorFlow code untouched (`requirements.txt`).
+- **Hardware:** one desktop PC, Intel Arc B580 GPU (XPU), one process. Measured: ≈ 28 ms per step at K = 310 (≈ 1.4 h per epoch for all Aim 1 folds, ≈ 1.7 days at 30 epochs; K = 230 is cheaper). Smoke: ≈ 12 ms/step at K = 2.
+- **Tests:** pytest suite (synthetic, device and real-data tests) passes with 0 failures and 0 skips; every proposal acceptance check is mapped to a test (`MAPPING.md` §5): no leakage, fold integrity, one procedure, identical data across configurations, 46 configurations, HRR, causality, seed reproducibility, inclusion snapshot, packed ↔ standalone parity, breath cleaning vs legacy, rm-BA and rm_corr vs legacy.
+
+---
+
+## 14. Departures from the approved Aim 1 proposal
+
+Each was decided by the developer and is recorded in `MAPPING.md`. The paper must report the ones marked ✱.
+
+| Topic | Proposal | Implemented | Why |
+|---|---|---|---|
+| ✱ Training-settings pilot splits | 3 pooled + 2 × 2 within-cohort validation splits; no test participants | LOSO (54 splits); held-out = Aim 1 test participants | dev, 9 Oct: same scheme as Aim 1 |
+| ✱ Pilot decision | rule fixed before running | rule computed but advisory; dev chooses from the table | dev, 9 Oct |
+| ✱ NIRS in configurations | TSI and Hb-diff separate, combinable → 62 | one NIRS domain, TSI *or* Hb-diff → 46 | dev, 8 Oct |
+| ✱ Shared mask | whole 187-s window valid for every sensor | target needs a valid unit; context needs only present data | lets valid repetitions next to an invalid one keep their targets |
+| ✱ Validity | visit-level, from annotations | unit × sensor group, automatic rules + NIRS review | objective, reproducible criteria |
+| ✱ HR source | Tymewear | Tymewear, else CPET chest strap (5 visits) | recovers 5 visits' HR |
+| ✱ Hb-diff channel | mean of 3 channels | Tx3 (intended 40 mm) | matches Gies's original choice |
+| ✱ Fit-factor threshold | 99.9 % | ≥ 99 % in ≥ 95 % of a unit's samples | 99.9 % per sample would drop 9 Lucas visits |
+| ✱ SMM | current code | Fitdays skeletal-muscle % × weight (not "Muscle mass") | true SMM |
+| ✱ Shuffle | silent (legacy thesis model: off) | on | dev, 8 Oct |
+| ✱ Framework | TensorFlow | PyTorch with Keras defaults pinned | TF cannot reliably use the B580 |
+| Pilot configurations | `WR`, `HR+VENT`, `WR+HR+VENT+TSI+HBDIFF+ANTHRO` | five (§9) | third is impossible under 46 |
+| Pilot size | ≈ 210 trainings | 162 jobs × 10 models | LOSO |
+| Seeding | seed Python, NumPy, framework | explicit generators only | — |
+| Config / CLI | YAML + command line | frozen dataclasses in `runs.py`, `main.py` | single PC, no cluster |
+| Inventory CSV | one table | `inclusion.csv` (verdicts) + `targets.csv` (seconds) | — |
+
+---
+
+## 15. Pending decisions
+
+| # | Item | Options / notes | Blocks |
+|---|---|---|---|
+| P1 | Training setting (lr × epochs) | from `outputs/pilot/decision.md` | full runs |
+| P2 | Statistics (§12) | random-effects structure; carry-forward rule; TOST margin confirm | paper results |
+| P3 | L14 Interval identity (header shows another participant's profile) | confirm with Lucas | — |
+| P4 | Tx3 = 40 mm | check OxySoft optode template or ask Artinis; or switch to `mean3` | — |
+| P5 | Gies Hard low level (GET vs 90 % GET) | read from xml | Methods text |
+| P6 | Participant characteristics (pooled, harmonised) | compute from CPET headers/Fitdays + harmonised VO₂peak | Methods text |
+| P7 | GET method for Lucas cohort; Lucas visit spacing | ask Lucas | Methods text |
+| P8 | Run `per_config` sensitivity runs? | optional | — |
+| P9 | `Subsample(fraction, seed)` hook (Aim 2a/2b) | documented in MAPPING/spec but missing in code; implement when Aim 2 is approved, or correct the docs | Aim 2 |
+| P10 | No TensorFlow ↔ PyTorch numerical check of the ported TCN | add one or state as limitation | — |
+| P11 | Target-second totals | from `summary/targets.csv` | Methods text |
+
+---
+
+## 16. Known limitations and caveats
+
+- **Pilot on test participants** (§9, §14): the global training setting is chosen with test-fold information. Mitigation: one setting chosen from five options, applied to all configurations.
+- **Hb-diff:** raw offset per export; no baseline correction (visual check only); Tx3 distance unverified.
+- **Fit factor** has no published threshold; the rule is empirical.
+- **Validity vs features use slightly different definitions** in places: inventory Hb-diff gap check uses the 3-channel mean while the feature is Tx3; inventory gap rule counts empty seconds while the presence rule uses sample spacing (≈ 1 s difference); NIRS time base inferred vs header rate. None changes a verdict on current data, as far as checked.
+- **Cleaning bridges holes:** after outlier rejection, NaN medians are linearly bridged; only raw-breath spacing can mark a second absent.
+- **Shared mask** removes a few targets even for configurations that do not use the missing group (e.g. last seconds of VENT in 10 Lucas visits).
+- **Partial visits:** G04 Hard and G07 Medium contribute one repetition each.
+- **Determinism** holds on the same device and software only.
+- **Small cohorts** (27 participants; 12–26 training participants per fold), young healthy adults, laboratory cycling only.
+- **BIA-derived SMM** has limited accuracy.
+- **Data protection:** Lucas raw files tracked in git include CPET headers with names and dates of birth; the repository remote is public.
+
+---
+
+## 17. Change log
+
+| Date | Change |
+|---|---|
+| 9 Oct 2026 | Document created from the code at `7bd3739`, `MAPPING.md`, the spec, the review and progress logs. Pilot running. |
+
+---
+
+## Appendix A: the 46 configurations
+
+In generation order (size, then canonical token order). Input dimension F in brackets.
+
+**1 domain (5):** `WR` [1], `HR` [2], `VENT` [2], `TSI` [1], `HBDIFF` [1]
+
+**2 domains (14):** `WR+HR` [3], `WR+VENT` [3], `WR+TSI` [2], `WR+HBDIFF` [2], `WR+ANTHRO` [3], `HR+VENT` [4], `HR+TSI` [3], `HR+HBDIFF` [3], `HR+ANTHRO` [4], `VENT+TSI` [3], `VENT+HBDIFF` [3], `VENT+ANTHRO` [4], `TSI+ANTHRO` [3], `HBDIFF+ANTHRO` [3]
+
+**3 domains (16):** `WR+HR+VENT` [5], `WR+HR+TSI` [4], `WR+HR+HBDIFF` [4], `WR+HR+ANTHRO` [5], `WR+VENT+TSI` [4], `WR+VENT+HBDIFF` [4], `WR+VENT+ANTHRO` [5], `WR+TSI+ANTHRO` [4], `WR+HBDIFF+ANTHRO` [4], `HR+VENT+TSI` [5], `HR+VENT+HBDIFF` [5], `HR+VENT+ANTHRO` [6], `HR+TSI+ANTHRO` [5], `HR+HBDIFF+ANTHRO` [5], `VENT+TSI+ANTHRO` [5], `VENT+HBDIFF+ANTHRO` [5]
+
+**4 domains (9):** `WR+HR+VENT+TSI` [6], `WR+HR+VENT+HBDIFF` [6], `WR+HR+VENT+ANTHRO` [7], `WR+HR+TSI+ANTHRO` [6], `WR+HR+HBDIFF+ANTHRO` [6], `WR+VENT+TSI+ANTHRO` [6], `WR+VENT+HBDIFF+ANTHRO` [6], `HR+VENT+TSI+ANTHRO` [7], `HR+VENT+HBDIFF+ANTHRO` [7]
+
+**5 domains (2):** `WR+HR+VENT+TSI+ANTHRO` [8], `WR+HR+VENT+HBDIFF+ANTHRO` [8]
+
+---
+
+## Appendix B: Aim 2 placeholder
+
+Not approved. Fill in when it is. Proposed design (handoff §6):
+
+- **2a, unseen intensity (Gies):** per target intensity, train with vs without it; the included set subsampled to the excluded set's size, fraction = (total − target)/total.
+- **2b, unseen protocol (Lucas):** the same across Ramp, PRBS, Interval, Step.
+- **2c, external cohort:** train on one cohort, test on the other; compare with that cohort's within-cohort LOSO from Aim 1 (`A1_gies`, `A1_lucas`). Same training procedure (§8).
+- **Supporting:** temporal structure of residuals (runs tests, run lengths) from saved predictions.
+
+Code status: explicit training-visit lists (`Fold.train_visits`), protocol labels on every prediction and generic `run_id`s exist. The seeded subsampling hook does not (P9).
