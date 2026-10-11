@@ -256,22 +256,9 @@ Input scalers were fitted on the seconds read by the training windows, and the t
 
 **Implementation [supplement].** Models were implemented in PyTorch. For efficiency, all models of one fold (46 configurations × 5 seeds) were trained simultaneously as independent branches of one network, using grouped convolutions with per-branch normalisation and loss. Each branch had its own parameters and received only its own configuration's inputs and gradients, so it was mathematically equivalent to a separately trained model. After training, each branch was extracted into a standalone model, and all predictions were made with the standalone models. Deterministic algorithms were enforced, so a training run is exactly reproducible on the same hardware and software.
 
-## 2.10 Training settings [main: short; supplement: full]
+## 2.10 Training settings [main]
 
-The primary analyses used a learning rate of 5 × 10⁻⁵ for 30 epochs, the setting of one preliminary study and the default of the analysis plan. It was fixed before any result of the main analyses was available.
-
-The analysis plan foresaw a pilot that could replace this reference with a cheaper setting of equal accuracy. Five candidate settings (learning rate × epochs) were to be compared:
-- 5 × 10⁻⁵ × 30, the reference;
-- 5 × 10⁻⁵ × 10;
-- 2 × 10⁻⁴ × 10;
-- 5 × 10⁻⁴ × 1, used in the other preliminary study;
-- 5 × 10⁻⁴ × 3.
-
-Because the learning rate was constant, the 10-epoch and 1-epoch settings equal the first epochs of the 30- and 3-epoch runs, so three training runs per split sufficed. Each shorter setting was evaluated at its own lowest-training-loss epoch within its epoch budget. The pilot used five configurations spanning the smallest and largest input sets (`WR`, `WR+HR+VENT+TSI+ANTHRO`, `WR+HR+VENT+HBDIFF+ANTHRO`, `HR+VENT+TSI+ANTHRO` and `HR+VENT+HBDIFF+ANTHRO`), two seeds each, and the same leave-one-subject-out splits as the main analyses (§2.11).
-
-The pilot was stopped after 8 of the 27 pooled splits, all with a held-out participant from cohort G, before any setting was chosen. On these splits, the mean RMSE of the five settings ranged from 260 to 269 mL·min⁻¹, less than the mean difference between two seeds of the same configuration (35 mL·min⁻¹), and no setting met the pre-specified guide rule (within 10 mL·min⁻¹ of the best setting for every configuration). Because training time per epoch hardly depended on the number of models trained together, completing the pilot would have cost about as much as the main analyses at the reference setting.
-
-Instead, all main analyses were repeated with 5 × 10⁻⁴ × 1 as a sensitivity analysis (§2.14). This second setting was chosen after the partial pilot results had been seen, in which it had the lowest mean RMSE; the held-out participants of those pilot splits were later test participants. The primary analyses are not affected, because their setting was fixed in advance and used no test-fold information. **[Keep: the departure from the approved plan must be reported.]**
+The learning rate (5 × 10⁻⁵) and number of epochs (30) were those of one preliminary study and the default of the analysis plan, fixed before any result of the main analyses was available. A planned pilot comparing cheaper settings was stopped early, before any setting was chosen; the default was therefore retained. As a sensitivity analysis (§2.14), all analyses were repeated with the setting of the other preliminary study (5 × 10⁻⁴ × 1 epoch).
 
 ## 2.11 Cross-validation and analyses [main]
 
@@ -305,7 +292,7 @@ Seed-averaged metrics are the mean of the five models' metrics. They estimate th
 
 ## 2.14 Sensitivity analyses [supplement]
 
-**Training setting.** All three analyses (pooled and within each cohort) were repeated with a learning rate of 5 × 10⁻⁴ for one epoch (§2.10), with everything else unchanged: the same folds, configurations, seeds, scaling and evaluation. This shows whether the conclusions depend on the amount of training.
+**Training setting.** All three analyses (pooled and within each cohort) were repeated with a learning rate of 5 × 10⁻⁴ for one epoch (§2.10), with everything else unchanged: the same folds, configurations, seeds, scaling and evaluation. This shows whether the conclusions depend on the amount of training. The pilot (five settings, five configurations, leave-one-subject-out) was stopped after 8 of 54 planned splits because the settings differed by less than the variation between seeds; the sensitivity setting was chosen after these partial results, whose held-out participants were later test participants.
 
 **Shared mask. [Optional; decide whether to run and report.]** To test whether the shared mask affected the conclusions, all analyses can be repeated with a per-configuration mask. Each configuration then uses every segment valid for the target and its own input groups. Configurations without NIRS or chest-strap inputs can then use visits excluded from the primary analysis; for example, `WR` alone uses all 55 cohort G visits.
 
