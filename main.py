@@ -7,7 +7,8 @@ from inventory.__main__ import main as inventory_main
 from inventory.build_inclusion import main as inclusion_main
 from pipeline.evaluate import evaluate
 from pipeline.pilot import decide, run_pilot
-from pipeline.runs import A1_GIES, A1_LUCAS, A1_POOLED, PILOT, PILOT_SMOKE, SMOKE
+from pipeline.runs import (A1_GIES, A1_GIES_SHORT, A1_LUCAS, A1_LUCAS_SHORT, A1_POOLED, A1_POOLED_SHORT, PILOT,
+                           PILOT_SMOKE, SMOKE)
 from pipeline.train import run
 
 ROUGH_INVENTORY_VISITS = ["L03_Ramp", "L12_PRBS", "G11_Hard"]
@@ -35,15 +36,24 @@ if __name__ == "__main__":
     # Smoke run first (2 configurations x folds G07, L04 x seed 0, 3 epochs):
     # run(SMOKE)
     # evaluate(SMOKE)
-    # run(A1_POOLED)
-    # evaluate(A1_POOLED)
-    # run(A1_GIES)
-    # evaluate(A1_GIES)
-    # run(A1_LUCAS)
-    # evaluate(A1_LUCAS)
+    # Training-setting sensitivity first (lr 5e-4 x 1 epoch, ~1.5 h for all three):
+    run(A1_POOLED_SHORT)
+    evaluate(A1_POOLED_SHORT)
+    run(A1_GIES_SHORT)
+    evaluate(A1_GIES_SHORT)
+    run(A1_LUCAS_SHORT)
+    evaluate(A1_LUCAS_SHORT)
+    # Primary (lr 5e-5 x 30 epochs, ≤ ~1.7 days for all three):
+    run(A1_POOLED)
+    evaluate(A1_POOLED)
+    run(A1_GIES)
+    evaluate(A1_GIES)
+    run(A1_LUCAS)
+    evaluate(A1_LUCAS)
 
     # Training-settings pilot, LOSO (54 splits x 3 trajectories, ~27 h) → outputs/pilot/<split>/<trajectory>/.
+    # Stopped 9 Oct 2026 after pooled G01, G03-G09 (dev): replaced by the sensitivity runs above.
     # Pilot smoke first (pooled_G01 x lr 5e-4 x 3 epochs x WR, WR+HR+VENT+TSI+ANTHRO x seed 0) → outputs/pilot_smoke/:
     # run_pilot(PILOT_SMOKE)
-    run_pilot(PILOT)
+    # run_pilot(PILOT)
     # decide(PILOT)  # → outputs/pilot/decision.json, decision.md; copy the chosen lr x epochs into runs.A1_TRAINING

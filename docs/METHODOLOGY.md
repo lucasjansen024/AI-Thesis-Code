@@ -4,9 +4,9 @@ This document describes the methodology **as the code implements it**: data, pre
 
 | | |
 |---|---|
-| **Last updated** | 9 Oct 2026 |
-| **Code state** | branch `Gies`, HEAD `7bd3739` (working tree differs only by line endings) |
-| **Stage** | Aim 1 implemented and accepted; LOSO training-settings pilot running; full Aim 1 runs not started; Aim 2 not approved |
+| **Last updated** | 11 Oct 2026 |
+| **Code state** | branch `Gies`, HEAD `c812b04` + uncommitted `runs.py`/`main.py`/test changes (§10) |
+| **Stage** | Aim 1 runs complete (primary + training-setting sensitivity); training-settings pilot stopped without a choice; statistics not started; Aim 2 not approved |
 | **Target journals** | *Journal of Sport and Health Science* (JSHS) or *Sports Medicine* (see `docs/paper/README.md` for what this means for the writing) |
 | **Terms** | as defined in [`CONTEXT.md`](../CONTEXT.md) (*cohort, participant, protocol, visit, unit, sensor group, shared mask, domain, configuration, fold, run, seed, trajectory* …) |
 | **Related** | Approved proposal: [`AIM1_IMPLEMENTATION_HANDOFF.md`](AIM1_IMPLEMENTATION_HANDOFF.md) · Requirement → module map: [`MAPPING.md`](MAPPING.md) |
@@ -381,7 +381,7 @@ Context seconds need only be present, not in a valid unit: the warm-up end and a
 | Setting | Value |
 |---|---|
 | Optimiser | Adam, β = (0.9, 0.999), ε = 1e-7 (Keras), no weight decay, constant learning rate |
-| Learning rate × epochs | **[PENDING pilot]** literal `A1_TRAINING` in `runs.py`; currently 5e-5 × 30 |
+| Learning rate × epochs | **5e-5 × 30** (primary; `runs.A1_TRAINING`, the proposal's default). Sensitivity: 5e-4 × 1 (`runs.A1_SHORT_TRAINING`, §10). No pilot choice (§9). |
 | Batch size | 32, last partial batch kept |
 | Shuffle | on: a new seeded permutation of the training targets every epoch |
 | Loss | MSE on scaled V̇O₂ |
@@ -429,26 +429,31 @@ Context seconds need only be present, not in a valid unit: the warm-up end and a
 - **Configurations (5):** `WR`, `WR+HR+VENT+TSI+ANTHRO`, `WR+HR+VENT+HBDIFF+ANTHRO`, `HR+VENT+TSI+ANTHRO`, `HR+VENT+HBDIFF+ANTHRO`. **Seeds:** 0, 1. Shared mask.
 - After every epoch, each model is scored on the held-out participant (RMSE in mL·min⁻¹ per visit).
 - **Aggregation** (`decide`): visit RMSE → participant mean → mean over splits × seeds, per cell; 15 cells = 3 families × 5 configurations.
-- **Rule (advisory):** an arm qualifies in a cell if its RMSE ≤ the cell's best + 10 mL·min⁻¹; choose the fewest-epoch arm that qualifies in all 15 cells (A/B tie → lower mean RMSE); else R. Output: `outputs/pilot/decision.md`.
-- **The rule is not binding:** the developer chooses the setting from the table and copies it into `runs.A1_TRAINING`.
-- **Consequence to report:** under LOSO the held-out participants are the Aim 1 test participants, so the training setting is selected with information from the test folds (see §14).
-- Status (9 Oct 2026): running. **[PENDING]** chosen setting, rationale, time per training.
+- **Rule (advisory, never applied):** an arm qualifies in a cell if its RMSE ≤ the cell's best + 10 mL·min⁻¹; choose the fewest-epoch arm that qualifies in all 15 cells (A/B tie → lower mean RMSE); else R. Output would have been `outputs/pilot/decision.md`.
+
+**Outcome (dev, 9 Oct 2026): stopped after 24 of 162 jobs, no setting chosen.**
+- Completed: pooled splits G01, G03–G09 (8 splits × 3 trajectories; all held-out participants from cohort G). Logs kept in `outputs/pilot/`; `decide()` was not run.
+- Partial results (Claude's recomputation of `decide()`'s scoring over the 8 splits, 5 configurations × 2 seeds): arm means C 260, B 264, D 268, A 268, R 269 mL·min⁻¹, while the mean |seed 0 − seed 1| difference was 35 mL·min⁻¹. No arm met the 10 mL·min⁻¹ rule in every configuration. Configurations with WR improved slightly with more epochs (WR: C 194 → R 183); configurations without WR got worse (HR+VENT+TSI+ANTHRO: 328 → 371).
+- Time per pooled split at K = 10: R 29 min, B 9.4 min, D 2.9 min (41 min for all three); epoch time hardly depends on K (≈ 55 s at K = 10, ≈ 57 s at K = 2).
+- **Why stopped:** arms within seed noise, and the remaining pilot (≈ 23 h) cost about as much as Aim 1 at R. **Replacement:** every A1 run is trained at R (primary, fixed before any A1 result) and at C (sensitivity), §10.
+- **Consequence to report:** C was chosen as the sensitivity setting after seeing partial pilot results whose held-out participants are Aim 1 test participants (see §14). The primary setting is the proposal's default and uses no test-fold information.
 
 ---
 
 ## 10. Aim 1 runs
 
-`pipeline/runs.py`. All: 46 configurations × 5 seeds × LOSO, the one training setting, default `PrepSettings`.
+`pipeline/runs.py`. All: 46 configurations × 5 seeds × LOSO, default `PrepSettings`. Primary runs use `A1_TRAINING` (5e-5 × 30); the training-setting sensitivity runs are identical except for `A1_SHORT_TRAINING` (5e-4 × 1) and their run IDs.
 
-| Run ID | Cohorts | Folds | Mask | Trainings | Status |
-|---|---|---|---|---|---|
-| `A1_pooled` | Gies + Lucas | 27 | shared | 6,210 | not run |
-| `A1_gies` | Gies | 14 | shared | 3,220 | not run |
-| `A1_lucas` | Lucas | 13 | shared | 2,990 | not run |
-| `A1_*_per_config` | as above | 27/14/13 | per_config | as above | sensitivity, optional |
-| `smoke` | both | G07, L04 | shared | 2 configs × 1 seed, 3 epochs | plumbing check only, done |
+| Run ID | Cohorts | Folds | Mask | Training | Trainings | Status |
+|---|---|---|---|---|---|---|
+| `A1_pooled` | Gies + Lucas | 27 | shared | 5e-5 × 30 | 6,210 | done 10 Oct |
+| `A1_gies` | Gies | 14 | shared | 5e-5 × 30 | 3,220 | done 10 Oct |
+| `A1_lucas` | Lucas | 13 | shared | 5e-5 × 30 | 2,990 | done 11 Oct |
+| `A1_{pooled,gies,lucas}_lr5e-4_ep1` | as above | 27/14/13 | shared | 5e-4 × 1 | as above | sensitivity, done 9 Oct |
+| `A1_*_per_config` | as above | 27/14/13 | per_config | 5e-5 × 30 | as above | sensitivity, optional, not run |
+| `smoke` | both | G07, L04 | shared | 5e-5 × 3 | 2 configs × 1 seed | plumbing check only, done |
 
-Total primary: 12,420 trainings in 54 packed jobs. Training-set sizes (participants, target seconds) per fold are reported in `summary/folds.csv`.
+Total primary: 12,420 trainings in 54 packed jobs (and the same again for the sensitivity setting). Measured wall time on the B580: primary ≈ 32 h for all three runs (≈ 47 min per pooled fold, ≈ 22 min per within-cohort fold); sensitivity ≈ 1.5 h. Training-set sizes (participants, target seconds) per fold are reported in `summary/folds.csv`.
 
 ---
 
@@ -520,7 +525,7 @@ Each was decided by the developer and is recorded in `MAPPING.md`. The paper mus
 | Topic | Proposal | Implemented | Why |
 |---|---|---|---|
 | ✱ Training-settings pilot splits | 3 pooled + 2 × 2 within-cohort validation splits; no test participants | LOSO (54 splits); held-out = Aim 1 test participants | dev, 9 Oct: same scheme as Aim 1 |
-| ✱ Pilot decision | rule fixed before running | rule computed but advisory; dev chooses from the table | dev, 9 Oct |
+| ✱ Pilot decision | rule fixed before running; pilot picks the setting | pilot stopped after 8 pooled splits, no setting chosen; primary = proposal default (5e-5 × 30), sensitivity = 5e-4 × 1, picked after seeing partial pilot results (§9) | dev, 9 Oct: arms within seed noise; pilot cost ≈ Aim 1 itself |
 | ✱ NIRS in configurations | TSI and Hb-diff separate, combinable → 62 | one NIRS domain, TSI *or* Hb-diff → 46 | dev, 8 Oct |
 | ✱ Shared mask | whole 187-s window valid for every sensor | target needs a valid unit; context needs only present data | lets valid repetitions next to an invalid one keep their targets |
 | ✱ Validity | visit-level, from annotations | unit × sensor group, automatic rules + NIRS review | objective, reproducible criteria |
@@ -542,7 +547,6 @@ Each was decided by the developer and is recorded in `MAPPING.md`. The paper mus
 
 | # | Item | Options / notes | Blocks |
 |---|---|---|---|
-| P1 | Training setting (lr × epochs) | from `outputs/pilot/decision.md` | full runs |
 | P2 | Statistics (§12) | random-effects structure; carry-forward rule; TOST margin confirm | paper results |
 | P4 | Tx3 = 40 mm | check OxySoft optode template or ask Artinis; or switch to `mean3` | — |
 | P7 | Details not in the repo: pre-test instructions for Gies (Lucas: no heavy exercise/alcohol 24 h, no caffeine that day, 2 h fasting); cart chest-strap model; occlusion protocol for Gies; ergometer and Artinis company cities | ask the cohort owners | Methods text |
@@ -554,7 +558,7 @@ Each was decided by the developer and is recorded in `MAPPING.md`. The paper mus
 
 ## 16. Known limitations and caveats
 
-- **Pilot on test participants** (§9, §14): the global training setting is chosen with test-fold information. Mitigation: one setting chosen from five options, applied to all configurations.
+- **Pilot on test participants** (§9, §14): the sensitivity setting (5e-4 × 1) was picked after seeing partial LOSO pilot results, i.e. with test-fold information. The primary setting is the proposal's default and is unaffected.
 - **Hb-diff:** raw offset per export; no baseline correction (visual check only); Tx3 distance unverified.
 - **Fit factor** has no published threshold; the rule is empirical.
 - **Validity vs features use slightly different definitions** in places: inventory Hb-diff gap check uses the 3-channel mean while the feature is Tx3; inventory gap rule counts empty seconds while the presence rule uses sample spacing (≈ 1 s difference); NIRS time base inferred vs header rate. None changes a verdict on current data, as far as checked.
@@ -576,6 +580,7 @@ Each was decided by the developer and is recorded in `MAPPING.md`. The paper mus
 |---|---|
 | 9 Oct 2026 | Document created from the code at `7bd3739`, `MAPPING.md`, the spec, the review and progress logs. Pilot running. |
 | 9 Oct 2026 | Target journals noted (JSHS or Sports Medicine). Participant characteristics computed (§2.1) from the inventory and the per-participant ramp sheets. Protocol levels verified against the xml files: Gies Hard low = GET (P5 closed). Intensity derivation, visit spacing and lab conditions added (§2.2). L14 Interval: wrong CPET profile confirmed by Lucas, age override sufficient (P3 closed). Target-second totals added (§4.4; P11 closed). Same-day visit and intensity limitations added. |
+| 11 Oct 2026 | Pilot stopped after 8 pooled splits without a choice (§9, outcome and partial results added). P1 closed: primary 5e-5 × 30 (proposal default), sensitivity 5e-4 × 1 runs added (§8, §10). All six A1 runs complete (§10 status and wall times). §14 pilot-decision row and §16 pilot caveat updated. |
 
 ---
 

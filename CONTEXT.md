@@ -113,7 +113,7 @@ The random seed of a **Training**. Every combination is trained with five seeds 
 The epoch whose average training loss (dropout active) is lowest; that epoch's weights are the trained model. Never chosen on validation or test data.
 
 **Pilot**:
-The training-settings pilot that picks one global learning-rate × epochs setting. Its candidate settings are **arms** (R, A, B, C, D). It is LOSO, like the **Runs**: one split per held-out **Participant** in each of the pooled, Gies and Lucas families (27 + 14 + 13). The dev chooses the setting from its table.
+The training-settings pilot that picks one global learning-rate × epochs setting. Its candidate settings are **arms** (R, A, B, C, D). It is LOSO, like the **Runs**: one split per held-out **Participant** in each of the pooled, Gies and Lucas families (27 + 14 + 13). Stopped on 9 Oct 2026 before choosing a setting: every A1 **Run** trains at R (primary) and, as a sensitivity run, at C (lr 5e-4 × 1 epoch).
 
 **Trajectory**:
 One pilot training at a fixed learning rate, logged every epoch. An arm with fewer epochs at the same learning rate is read off a longer trajectory (A from R, C from D), since its training is identical up to that epoch.

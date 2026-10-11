@@ -14,8 +14,8 @@ from pipeline.domains import INPUTS, STATIC_DOMAINS, Domain, generate_configurat
 from pipeline.evaluate import TrainingSettingsMismatchError, evaluate
 from pipeline.folds import build_fold_data, run_folds
 from pipeline.inclusion import shared_mask
-from pipeline.runs import (A1_CONFIGURATIONS, A1_GIES, A1_LUCAS, A1_POOLED, A1_RUNS, A1_TRAINING, SMOKE, Run,
-                           TrainingSettings)
+from pipeline.runs import (A1_CONFIGURATIONS, A1_GIES, A1_LUCAS, A1_POOLED, A1_RUNS, A1_SHORT_RUNS,
+                           A1_SHORT_TRAINING, A1_TRAINING, SMOKE, Run, TrainingSettings)
 from pipeline.train import MANIFEST_NAME, PREDICTIONS_NAME, RunData, mask_groups, train_folds
 from tests.synthetic import PARTICIPANTS, SYNTHETIC_RUN, make_synthetic
 
@@ -91,6 +91,13 @@ def test_resolved_training_settings_are_identical_across_a1_runs() -> None:
     resolved = [asdict(r)["training"] for r in A1_RUNS]
     assert resolved == [asdict(A1_TRAINING)] * len(A1_RUNS)
     assert asdict(A1_TRAINING) == {"learning_rate": 5e-5, "epochs": 30, "batch_size": 32}
+
+
+def test_short_runs_differ_from_a1_runs_only_in_run_id_and_training() -> None:
+    assert asdict(A1_SHORT_TRAINING) == {"learning_rate": 5e-4, "epochs": 1, "batch_size": 32}
+    assert len({r.run_id for r in (*A1_RUNS, *A1_SHORT_RUNS)}) == 2 * len(A1_RUNS)
+    for primary, short in zip(A1_RUNS, A1_SHORT_RUNS):
+        assert short == replace(primary, run_id=short.run_id, training=A1_SHORT_TRAINING)
 
 
 def test_smoke_run_definition() -> None:

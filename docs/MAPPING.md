@@ -46,7 +46,7 @@ This file maps every requirement in [`AIM1_IMPLEMENTATION_HANDOFF.md`](AIM1_IMPL
 | `folds.py` | `Fold(test_participant, train_visits)`, LOSO generation, `Subsample(fraction, seed)`, fold scalers, target indices. In memory only. |
 | `TCN.py` | Packed §2.3 TCN (grouped convs, per-branch LayerNorm, channel masks, last-only forward) and extraction into standalone per-configuration TCNs. |
 | `train.py` | One job per (fold, identical-mask group): seeds, on-device window gather, checkpoint, `.tmp` → final rename, resume. |
-| `runs.py` | Frozen `Run` dataclasses (`A1_pooled`, `A1_gies`, `A1_lucas`, `per_config` variants, `SMOKE`), pilot splits, the chosen training setting as a literal. |
+| `runs.py` | Frozen `Run` dataclasses (`A1_pooled`, `A1_gies`, `A1_lucas`, `per_config` variants, `_lr5e-4_ep1` sensitivity variants, `SMOKE`), pilot splits, the training settings as literals. |
 | `pilot.py` | Pilot trajectories with validation logging; `decide()`. |
 | `metrics.py` | Per-visit metrics, `rm_corr`, Pearson r, repeated-measures Bland–Altman, VO₂peak. |
 | `evaluate.py` | `evaluate(run)`: seed aggregation, `summary/` tables. |
@@ -81,15 +81,15 @@ This file maps every requirement in [`AIM1_IMPLEMENTATION_HANDOFF.md`](AIM1_IMPL
 | Requirement | Lands in | Decided in | Status | Note |
 |---|---|---|---|---|
 | TCN: 5 causal dilated Conv1D, k 7, 16 filters, dilations 1–16, residual, LayerNorm, ReLU, dropout 0.2; RF 187 s | `TCN.py` | T07, T08 | departure (framework) | PyTorch port with Keras defaults pinned (Glorot kernels, zero biases, LayerNorm eps 1e-3). Training uses the last-only forward: same function and gradients (parity-tested). Unused feature channels are masked; Glorot uses the true fan-in. Evaluation uses extracted standalone models. No TF ↔ PyTorch numerical parity test exists. |
-| Adam; lr 5e-5 default, final by pilot | `train.py`; literal in `runs.py` | T07, T09, T10 | as-is | Adam eps 1e-7 (Keras). The dev copies the pilot's lr into `runs.py`. |
+| Adam; lr 5e-5 default, final by pilot | `train.py`; literal in `runs.py` | T07, T09, T10; dev, 9 Oct | changed | Adam eps 1e-7 (Keras). No pilot choice (pilot stopped, §3.0): primary `A1_TRAINING` keeps 5e-5; sensitivity runs `A1_*_SHORT` use 5e-4. |
 | Batch 32 | `train.py` | T08 | as-is | Last partial batch kept (Keras behaviour). |
-| Epochs 30 default, final by pilot | literal in `runs.py` | T09, T10 | as-is | |
+| Epochs 30 default, final by pilot | literal in `runs.py` | T09, T10; dev, 9 Oct | changed | Primary keeps 30; sensitivity runs use 1. |
 | Loss MSE | `train.py` | T07 | as-is | Packed loss = sum of per-model MSEs, so each model gets its own gradient. |
 | Checkpoint: lowest **training** loss | `train.py` | T09 | as-is | Keras-style epoch average (batch-size weighted, dropout active), strict `<`, per branch, held in memory. |
 | No validation set | `train.py` | T09 | as-is | |
 | Shuffle | `train.py` | T09 | departure | **On** (seeded, new permutation each epoch). Legacy thesis model had `shuffle=False`; the handoff is silent, so the default would have been "off". Dev, 8 Oct. |
-| Same procedure for pooled, within-cohort and later Aim 2 runs | `runs.py` (one training-settings literal) | T08, T13 | as-is | Test: resolved training settings identical across A1 manifests. `evaluate()` checks fold manifests within a run agree. |
-| Never use test data to pick an epoch, checkpoint or setting | `train.py`, `pilot.py` | T09; dev, 9 Oct | **departure** | Checkpoint on training loss (met). The setting is not: the LOSO pilot chooses it on the A1 test participants (§3.0 below). |
+| Same procedure for pooled, within-cohort and later Aim 2 runs | `runs.py` (one training-settings literal) | T08, T13 | as-is | Test: resolved training settings identical across A1 manifests (primary runs; the `A1_*_SHORT` sensitivity runs share `A1_SHORT_TRAINING`). `evaluate()` checks fold manifests within a run agree. |
+| Never use test data to pick an epoch, checkpoint or setting | `train.py`, `pilot.py` | T09; dev, 9 Oct | **departure** (partial) | Checkpoint on training loss (met). Primary setting = the handoff default, fixed before any A1 result (met). The sensitivity setting (5e-4 × 1, pilot arm C) was picked from partial LOSO pilot results, i.e. on A1 test participants (§3.0 below); the methods section must say so. |
 
 ### §2.4 Windows and evaluation segment
 
@@ -150,6 +150,8 @@ This file maps every requirement in [`AIM1_IMPLEMENTATION_HANDOFF.md`](AIM1_IMPL
 ## 3. Aim 1 experiments (handoff §3)
 
 ### §3.0 Training-settings pilot
+
+**Outcome (dev, 9 Oct 2026): pilot stopped, no setting chosen.** Stopped after pooled splits G01 and G03–G09 (`outputs/pilot/`, kept as a record): the arms were within seed noise, and the pilot (~27 h) cost about as much as the A1 runs it would shorten (epoch time barely depends on K). Instead every A1 run trains at both R (primary, `A1_TRAINING`, 5e-5 × 30) and C (sensitivity, `A1_SHORT_TRAINING`, 5e-4 × 1; runs `A1_*_lr5e-4_ep1`), decided before any A1 result. The rows below describe the pilot code as built.
 
 | Requirement | Lands in | Decided in | Status | Note |
 |---|---|---|---|---|
@@ -271,7 +273,7 @@ This file maps every requirement in [`AIM1_IMPLEMENTATION_HANDOFF.md`](AIM1_IMPL
 | HRrest | `hrrest_window_s` (`PrepSettings`) | 120 (0–120 s, same visit, same source) | same-visit rest mean | as-is | T06 |
 | SMM | `smm: per_visit \| participant_mean` (`PrepSettings`) | `per_visit` | current code | departure (definition) | T06 |
 | NIRS fit-factor threshold | `NIRS_FIT_SHARE_COLUMN = "ff_ge99"` (the 99 % level), `NIRS_MIN_FIT_SHARE = 0.95` (`inventory/build_inclusion.py`) | 99 % in ≥ 95 % of a unit's seconds | 99.9 % | departure | T02, T05, T12 |
-| Training setting (lr × epochs) | literal in `runs.py`, chosen by the dev from `outputs/pilot/decision.md` | 5e-5 × 30 until the pilot | pilot rule | departure (dev picks; rule shown, not binding) | T09, T10; dev, 9 Oct |
+| Training setting (lr × epochs) | literals in `runs.py`: `A1_TRAINING` (primary), `A1_SHORT_TRAINING` (sensitivity) | 5e-5 × 30 primary; 5e-4 × 1 sensitivity | pilot rule | departure (pilot stopped; both settings run, primary fixed up front) | T09, T10; dev, 9 Oct |
 | Pilot tolerance | constant in `pilot.py` (informational) | 10 mL·min⁻¹ | 10 mL·min⁻¹ | as-is | T09 |
 | Equivalence margin | statistics scripts (outside this work) | ±25 mL·min⁻¹ | ±25 mL·min⁻¹ | as-is | — |
 | Within-cohort runs | `runs.py` | all 46 configurations | all configurations | as-is | T07 |

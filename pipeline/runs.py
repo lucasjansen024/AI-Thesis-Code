@@ -1,7 +1,8 @@
 """Run registry: frozen `Run` dataclasses picked in `main.py` by commenting/uncommenting. No YAML, no CLI.
 
-The training setting is one shared literal (lr 5e-5 x 30 epochs until the pilot decides; the dev copies the
-pilot's choice here). Every A1 run trains all 46 configurations x 5 seeds on LOSO folds of its cohorts.
+The primary training setting is one shared literal (lr 5e-5 x 30 epochs); a training-setting sensitivity reruns
+the A1 runs at lr 5e-4 x 1 epoch (dev, 9 Oct 2026; replaces the pilot's choice). Every A1 run trains all 46
+configurations x 5 seeds on LOSO folds of its cohorts.
 """
 from __future__ import annotations
 
@@ -70,6 +71,14 @@ A1_POOLED_PER_CONFIG = replace(A1_POOLED, run_id="A1_pooled_per_config", mask=PE
 A1_GIES_PER_CONFIG = replace(A1_GIES, run_id="A1_gies_per_config", mask=PER_CONFIG_MASK)
 A1_LUCAS_PER_CONFIG = replace(A1_LUCAS, run_id="A1_lucas_per_config", mask=PER_CONFIG_MASK)
 A1_PER_CONFIG_RUNS = (A1_POOLED_PER_CONFIG, A1_GIES_PER_CONFIG, A1_LUCAS_PER_CONFIG)
+
+# Training-setting sensitivity runs (dev, 9 Oct 2026): pilot arm C (lr 5e-4, checkpoint at epoch 1), otherwise
+# identical to the primary runs. No LR schedule, so a 1-epoch run follows the arm's procedure (dropout RNG differs).
+A1_SHORT_TRAINING = TrainingSettings(learning_rate=5e-4, epochs=1)
+A1_POOLED_SHORT = replace(A1_POOLED, run_id="A1_pooled_lr5e-4_ep1", training=A1_SHORT_TRAINING)
+A1_GIES_SHORT = replace(A1_GIES, run_id="A1_gies_lr5e-4_ep1", training=A1_SHORT_TRAINING)
+A1_LUCAS_SHORT = replace(A1_LUCAS, run_id="A1_lucas_lr5e-4_ep1", training=A1_SHORT_TRAINING)
+A1_SHORT_RUNS = (A1_POOLED_SHORT, A1_GIES_SHORT, A1_LUCAS_SHORT)
 
 # Plumbing check before the pilot (CONTEXT.md "Smoke run"); its results are not used.
 SMOKE_EPOCHS = 3

@@ -236,7 +236,7 @@ One training procedure was fixed before the main analyses and applied identicall
 |---|---|
 | Loss | mean squared error on standardised V̇O₂ |
 | Optimiser | Adam [Kingma 2015], β₁ = 0.9, β₂ = 0.999, ε = 10⁻⁷, constant learning rate |
-| Learning rate × epochs | **[chosen in the pilot, §2.10]** |
+| Learning rate × epochs | 5 × 10⁻⁵ × 30 (sensitivity analysis: 5 × 10⁻⁴ × 1; §2.10, §2.14) |
 | Batch size | 32 |
 | Sample order | reshuffled every epoch |
 | Validation set, early stopping | none |
@@ -256,20 +256,22 @@ Input scalers were fitted on the seconds read by the training windows, and the t
 
 **Implementation [supplement].** Models were implemented in PyTorch. For efficiency, all models of one fold (46 configurations × 5 seeds) were trained simultaneously as independent branches of one network, using grouped convolutions with per-branch normalisation and loss. Each branch had its own parameters and received only its own configuration's inputs and gradients, so it was mathematically equivalent to a separately trained model. After training, each branch was extracted into a standalone model, and all predictions were made with the standalone models. Deterministic algorithms were enforced, so a training run is exactly reproducible on the same hardware and software.
 
-## 2.10 Training-settings pilot [main: short; supplement: full]
+## 2.10 Training settings [main: short; supplement: full]
 
-The learning rate and number of epochs were chosen once, in a pilot, and then fixed for all analyses. Five candidate settings (learning rate × epochs) were compared:
-- 5 × 10⁻⁵ × 30, the reference, used in one preliminary study;
+The primary analyses used a learning rate of 5 × 10⁻⁵ for 30 epochs, the setting of one preliminary study and the default of the analysis plan. It was fixed before any result of the main analyses was available.
+
+The analysis plan foresaw a pilot that could replace this reference with a cheaper setting of equal accuracy. Five candidate settings (learning rate × epochs) were to be compared:
+- 5 × 10⁻⁵ × 30, the reference;
 - 5 × 10⁻⁵ × 10;
 - 2 × 10⁻⁴ × 10;
 - 5 × 10⁻⁴ × 1, used in the other preliminary study;
 - 5 × 10⁻⁴ × 3.
 
-Because the learning rate was constant, the 10-epoch and 1-epoch settings equal the first epochs of the 30- and 3-epoch runs, so three training runs per split sufficed. Each shorter setting was evaluated at its own lowest-training-loss epoch within its epoch budget.
+Because the learning rate was constant, the 10-epoch and 1-epoch settings equal the first epochs of the 30- and 3-epoch runs, so three training runs per split sufficed. Each shorter setting was evaluated at its own lowest-training-loss epoch within its epoch budget. The pilot used five configurations spanning the smallest and largest input sets (`WR`, `WR+HR+VENT+TSI+ANTHRO`, `WR+HR+VENT+HBDIFF+ANTHRO`, `HR+VENT+TSI+ANTHRO` and `HR+VENT+HBDIFF+ANTHRO`), two seeds each, and the same leave-one-subject-out splits as the main analyses (§2.11).
 
-The pilot used five configurations spanning the smallest and largest input sets, with two seeds each: `WR`, `WR+HR+VENT+TSI+ANTHRO`, `WR+HR+VENT+HBDIFF+ANTHRO`, `HR+VENT+TSI+ANTHRO` and `HR+VENT+HBDIFF+ANTHRO`. It used the same leave-one-subject-out splits as the main analyses (§2.11), both in the pooled dataset (27 splits) and within each cohort (14 and 13 splits). This ensures that a setting adequate for the larger pooled training sets does not undertrain the smaller within-cohort ones. For each split, the held-out participant's RMSE per visit was averaged per participant, then over splits and seeds. This gave 15 comparisons (3 datasets × 5 configurations). A pre-specified guide rule favoured the setting with the fewest epochs whose RMSE was within 10 mL·min⁻¹ of the best setting in all 15 comparisons. **[Report the chosen setting, whether it followed the guide rule, its RMSE relative to the reference setting, and the time per training.]**
+The pilot was stopped after 8 of the 27 pooled splits, all with a held-out participant from cohort G, before any setting was chosen. On these splits, the mean RMSE of the five settings ranged from 260 to 269 mL·min⁻¹, less than the mean difference between two seeds of the same configuration (35 mL·min⁻¹), and no setting met the pre-specified guide rule (within 10 mL·min⁻¹ of the best setting for every configuration). Because training time per epoch hardly depended on the number of models trained together, completing the pilot would have cost about as much as the main analyses at the reference setting.
 
-Because the pilot used leave-one-subject-out splits, its held-out participants were the same participants later used for testing. The training setting was therefore selected with information from the test folds. We consider the resulting optimism small, because a single setting was chosen from five candidates and applied identically to all 46 configurations, so it cannot favour particular configurations. Absolute errors may nevertheless be slightly optimistic. **[Keep this paragraph: the departure from the approved plan must be reported.]**
+Instead, all main analyses were repeated with 5 × 10⁻⁴ × 1 as a sensitivity analysis (§2.14). This second setting was chosen after the partial pilot results had been seen, in which it had the lowest mean RMSE; the held-out participants of those pilot splits were later test participants. The primary analyses are not affected, because their setting was fixed in advance and used no test-fold information. **[Keep: the departure from the approved plan must be reported.]**
 
 ## 2.11 Cross-validation and analyses [main]
 
@@ -301,9 +303,11 @@ Seed-averaged metrics are the mean of the five models' metrics. They estimate th
 
 **[Planned; to be finalised before the results are inspected.]** Visit-level, seed-averaged RMSE will be log-transformed and analysed with a linear mixed model with configuration, protocol and cohort as fixed effects and participant as a random intercept **[justify the random-effects structure; consider random slopes]**. Each configuration will be compared with work rate alone (`WR`), with Holm correction for multiple comparisons. Equivalence with `WR` will be tested with two one-sided tests against a margin of ±25 mL·min⁻¹, fixed in advance. **[Rule for selecting configurations for further analyses, e.g. the lowest pooled RMSE unless a simpler configuration is within the equivalence margin.]** **[Software, e.g. R lme4/emmeans or Python statsmodels; α = 0.05.]**
 
-## 2.14 Sensitivity analysis [supplement]
+## 2.14 Sensitivity analyses [supplement]
 
-**[Optional; decide whether to run and report.]** To test whether the shared mask affected the conclusions, all analyses can be repeated with a per-configuration mask. Each configuration then uses every segment valid for the target and its own input groups. Configurations without NIRS or chest-strap inputs can then use visits excluded from the primary analysis; for example, `WR` alone uses all 55 cohort G visits.
+**Training setting.** All three analyses (pooled and within each cohort) were repeated with a learning rate of 5 × 10⁻⁴ for one epoch (§2.10), with everything else unchanged: the same folds, configurations, seeds, scaling and evaluation. This shows whether the conclusions depend on the amount of training.
+
+**Shared mask. [Optional; decide whether to run and report.]** To test whether the shared mask affected the conclusions, all analyses can be repeated with a per-configuration mask. Each configuration then uses every segment valid for the target and its own input groups. Configurations without NIRS or chest-strap inputs can then use visits excluded from the primary analysis; for example, `WR` alone uses all 55 cohort G visits.
 
 ## 2.15 Software, hardware and reproducibility [main: 2 sentences; rest supplement]
 
