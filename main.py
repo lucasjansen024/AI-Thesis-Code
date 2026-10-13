@@ -9,6 +9,7 @@ from pipeline.aim2 import run_left_out, run_transfer
 from pipeline.aim2_outcome import OUTCOME_ROOT, write_outcome
 from pipeline.evaluate import evaluate
 from pipeline.pilot import decide, run_pilot
+from pipeline.residuals import write_residuals
 from pipeline.runs import (A1_GIES, A1_GIES_SHORT, A1_LUCAS, A1_LUCAS_SHORT, A1_POOLED, A1_POOLED_SHORT,
                            A2_SMOKE_ARMS, A2_SMOKE_TRANSFER, A2A_ARMS, A2B_ARMS, A2C_TRANSFERS, PILOT, PILOT_SMOKE,
                            SMOKE)
@@ -65,15 +66,18 @@ if __name__ == "__main__":
     # evaluate(A2_SMOKE_TRANSFER.run)
     # write_outcome(A2_SMOKE_ARMS, (A2_SMOKE_TRANSFER,), out_dir=OUTCOME_ROOT / "smoke")
     # 2c, both directions (one training each, ~1 h in total); needs A1_gies and A1_lucas evaluated:
-    for transfer in A2C_TRANSFERS:
-        run_transfer(transfer)
-        evaluate(transfer.run)
-    write_outcome(transfers=A2C_TRANSFERS)
+    # for transfer in A2C_TRANSFERS:
+    #     run_transfer(transfer)
+    #     evaluate(transfer.run)
+    # write_outcome(transfers=A2C_TRANSFERS)
     # 2a (76 fold jobs) and 2b (104 fold jobs), after the map:
-    # for arm in (*A2A_ARMS, *A2B_ARMS):
-    #     run_left_out(arm)
-    #     evaluate(arm.run)
-    # write_outcome(A2A_ARMS + A2B_ARMS, A2C_TRANSFERS)
+    for arm in (*A2A_ARMS, *A2B_ARMS):
+        run_left_out(arm)
+        evaluate(arm.run)
+    write_outcome(A2A_ARMS + A2B_ARMS, A2C_TRANSFERS)
+
+    # Residual analyses (METHODOLOGY §11.6) → outputs/residuals/<run_id>/; needs the run evaluated and its cache:
+    # write_residuals()  # A1_pooled x the three carry-forward configurations
 
     # Training-settings pilot, LOSO (54 splits x 3 trajectories, ~27 h) → outputs/pilot/<split>/<trajectory>/.
     # Stopped 9 Oct 2026 after pooled G01, G03-G09 (dev): replaced by the sensitivity runs above.
