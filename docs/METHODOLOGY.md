@@ -74,7 +74,7 @@ Entry point: `main.py`, where runs are picked by (un)commenting calls. Run defin
 | Age (y) ¹ | 25.7 ± 3.4 (22.3–31.6) | 25.4 ± 2.5 (22.7–31.1) |
 | Height (cm) ¹ | 180.2 ± 9.3 | 178.0 ± 9.9 |
 | Body mass (kg) ² | 74.0 ± 9.9 | 69.9 ± 13.6 |
-| SMM (kg) ² | 30.7 ± 5.1 (21.0–39.6) | 29.9 ± 6.1 (21.6–39.4) |
+| SMM (kg) ² | 30.7 ± 5.1 (21.0–39.6) | 29.8 ± 6.0 (21.6–39.4) |
 | Peak V̇O₂ ³ | 3.47 ± 0.64 L·min⁻¹; 47.0 ± 7.4 mL·kg⁻¹·min⁻¹ | 3.11 ± 0.87 L·min⁻¹; 44.1 ± 7.3 mL·kg⁻¹·min⁻¹ |
 | Peak power ³ (W) | 348 ± 64 | 298 ± 87 |
 | GET ³ | 2.22 ± 0.38 L·min⁻¹; 153 ± 31 W | 2.10 ± 0.47 L·min⁻¹; 142 ± 41 W |
@@ -84,7 +84,7 @@ Entry point: `main.py`, where runs are picked by (un)commenting calls. Run defin
 | Protocols (visits) | Ramp, Easy, Medium, Hard | Ramp, PRBS, Interval, Step |
 | Candidate visits | 55 (G14 Medium never recorded) | 52 |
 
-Pooled (n = 27; 16 M, 11 F): age 25.6 ± 2.9 y, height 179.2 ± 9.5 cm, body mass 72.0 ± 11.8 kg, SMM 30.3 ± 5.5 kg, peak V̇O₂ 3.30 ± 0.77 L·min⁻¹ (45.6 ± 7.4 mL·kg⁻¹·min⁻¹), peak power 324 ± 79 W, GET 2.16 ± 0.42 L·min⁻¹ (147 ± 36 W; 66 ± 6 % of peak V̇O₂). Mean ± SD (range), computed 9 Oct 2026 (scratch computation, not part of the pipeline):
+Pooled (n = 27; 16 M, 11 F): age 25.6 ± 2.9 y, height 179.2 ± 9.5 cm, body mass 72.0 ± 11.8 kg, SMM 30.3 ± 5.5 kg, peak V̇O₂ 3.30 ± 0.77 L·min⁻¹ (45.6 ± 7.4 mL·kg⁻¹·min⁻¹), peak power 324 ± 79 W, GET 2.16 ± 0.42 L·min⁻¹ (148 ± 36 W; 66 ± 6 % of peak V̇O₂). Mean ± SD (range), computed by `figures/table1.py` (Table 1; outputs `outputs/paper/table1.md` and `table1_participants.csv`; the 9 Oct scratch computation differed only in rounding: Lucas SMM 29.9 ± 6.1, pooled GET 147 W). Sources:
 
 ¹ CPET header of the ramp visit (`outputs/inventory/inventory_visits.csv`).
 ² Fitdays reading matched to the ramp visit (same file); SMM = skeletal-muscle % × weight. Body mass is the BIA-scale weight (the Gies draft's 74.2 ± 9.5 kg used a separate lab scale).
@@ -662,6 +662,7 @@ Each was decided by the developer and is recorded in `MAPPING.md`. The paper mus
 | 13 Oct 2026 | Aim 2 approved (supervisor meeting) and specified, not implemented: Appendix B rewritten from the placeholder (2a without the Ramp, 2b, 2c with a same-test-cohort reference; seen arm size-matched by random subsampling of training targets). Carry-forward rule and disclosure added to §12 (`WR`, `HR+VENT+TSI+ANTHRO`, `WR+VENT`); the "simpler within the margin" idea dropped. P9 closed: the subsampling is specified (Appendix B.4). It replaces the spec's `Subsample(fraction, seed)`, which `MAPPING.md` (`folds.py` row, T08 row) still wrongly lists as implemented; to be corrected with the Aim 2 rows there. §1 and §6 updated. |
 | 13 Oct 2026 | Aim 2 implemented (Appendix B status and code references): `pipeline/aim2.py`, `pipeline/aim2_outcome.py`, Aim 2 registry in `pipeline/runs.py`, `tests/test_aim2.py`; pytest passes, smoke run done. The outcome pairing also requires equal `n_s` per visit (B.6). |
 | 13 Oct 2026 | Inferential statistics (LMM, Holm, TOST) deferred beyond the current effort (dev); descriptives only for now (§12; P2 marked deferred, not dropped). Residual analyses specified in the new §11.6 (a subsection, so §12–§17 keep their numbers): `A1_pooled` × the three carry-forward configurations × 7 protocols; phase labels from the ideal WR and `inventory/reference/get_power.csv` (provenance added; no MRT shift); 8 disjoint phase windows; joined runs test, per-visit run length, per-phase bias and error share, aligned traces. B.9 points to §11.6; Aim 2 reuse not yet specified. Header stage updated. |
+| 13 Oct 2026 | Participant characteristics (§2.1, paper Table 1) now computed by `figures/table1.py` from the inventory and the ramp sheets (cells J21/K21/L21/E22, labels checked); Lucas SMM 29.9 ± 6.1 → 29.8 ± 6.0 and pooled GET 147 → 148 W (rounding only). Study design figure: `figures/study_design.py`. |
 
 ---
 

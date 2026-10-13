@@ -23,7 +23,7 @@ All participants gave written informed consent and were informed of their right 
 | Age (y) | 25.7 ± 3.4 | 25.4 ± 2.5 | 25.6 ± 2.9 |
 | Height (cm) | 180.2 ± 9.3 | 178.0 ± 9.9 | 179.2 ± 9.5 |
 | Body mass (kg) | 74.0 ± 9.9 | 69.9 ± 13.6 | 72.0 ± 11.8 |
-| Skeletal muscle mass (kg) | 30.7 ± 5.1 | 29.9 ± 6.1 | 30.3 ± 5.5 |
+| Skeletal muscle mass (kg) | 30.7 ± 5.1 | 29.8 ± 6.0 | 30.3 ± 5.5 |
 | Peak V̇O₂ (L·min⁻¹) | 3.47 ± 0.64 | 3.11 ± 0.87 | 3.30 ± 0.77 |
 | Peak V̇O₂ (mL·kg⁻¹·min⁻¹) | 47.0 ± 7.4 | 44.1 ± 7.3 | 45.6 ± 7.4 |
 | Peak power (W) | 348 ± 64 | 298 ± 87 | 324 ± 79 |

@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import logging
 
+from figures.study_design import write_study_design
+from figures.table1 import write_table1
 from inventory.__main__ import main as inventory_main
 from inventory.build_inclusion import main as inclusion_main
 from pipeline.aim2 import run_left_out, run_transfer
@@ -78,6 +80,11 @@ if __name__ == "__main__":
 
     # Residual analyses (METHODOLOGY §11.6) → outputs/residuals/<run_id>/; needs the run evaluated and its cache:
     # write_residuals()  # A1_pooled x the three carry-forward configurations
+
+    # Display items (paper) → outputs/paper/. Table 1 reads the inventory CSV and the ramp MRT sheets; the study
+    # design figure also needs A1_pooled's cache:
+    # write_table1()
+    # write_study_design()
 
     # Training-settings pilot, LOSO (54 splits x 3 trajectories, ~27 h) → outputs/pilot/<split>/<trajectory>/.
     # Stopped 9 Oct 2026 after pooled G01, G03-G09 (dev): replaced by the sensitivity runs above.
