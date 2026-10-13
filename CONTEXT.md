@@ -80,6 +80,10 @@ One of the two alternative features of the `NIRS` domain: `TSI` or `HBDIFF` (Hb-
 A non-empty set of time-varying **Domains** (`NIRS` as one **NIRS variable**), optionally plus `ANTHRO`. It is named by joining the IDs, with NIRS written as its variable (`WR+HR+ANTHRO`, `HR+TSI`). There are 46.
 _Avoid_: processor, input combination, model type
 
+**Carried-forward configuration**:
+One of the three **Configurations** evaluated in Aim 2: `WR` (the reference), the best configuration without `WR`, and the best configuration combining `WR` with at least one of `HR`, `VENT` or `NIRS`. "Best" means the lowest mean RMSE in `A1_pooled`.
+_Avoid_: winner, selected model
+
 **HRR**:
 Heart-rate reserve, `(HR − HRrest) / (HRpeak − HRrest)`. HRrest is the mean HR in the same visit's rest phase; HRpeak is `208 − 0.7 × age`.
 
@@ -97,10 +101,20 @@ _Avoid_: muscle mass (the scale's separate, larger "Muscle mass" value)
 The 187 input seconds `t−187 … t−1` used to predict V̇O₂ at target second `t`.
 
 **Fold**:
-One leave-one-subject-out split: one test **Participant**; every other participant in the run trains the model.
+One train/test split of a **Run**. In Aim 1 it is leave-one-subject-out: one test **Participant**, and every other participant in the run trains the model. In Aim 2 the training set is narrowed (2a/2b), or the test set is a whole **Cohort** (2c).
+
+**Left-out condition**:
+The intensity level (2a: Easy, Medium or Hard) or **Protocol** (2b) that an Aim 2 **Unseen arm** never trains on, and on whose **Visits** both arms are scored.
+
+**Unseen arm**:
+The Aim 2 **Run** for one **Left-out condition** that trains on every other condition of the other **Participants**.
+
+**Seen arm**:
+The paired reference for an **Unseen arm**: trained on all conditions of the same **Participants**, randomly subsampled per **Fold** to exactly the unseen arm's number of training seconds.
+_Avoid_: control, baseline (A1 runs are the 2c reference, not a seen arm)
 
 **Run**:
-The fixed set of participants and folds being evaluated: `A1_pooled` (both cohorts), `A1_gies`, `A1_lucas`.
+The fixed set of participants and folds being evaluated: `A1_pooled` (both cohorts), `A1_gies`, `A1_lucas`; in Aim 2, one run per **Left-out condition** × arm (`A2a_*`, `A2b_*`) and one per cohort direction (`A2c_*`).
 _Avoid_: experiment (for a single training)
 
 **Training**:

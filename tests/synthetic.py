@@ -85,3 +85,27 @@ def inclusion_table(invalid: frozenset[tuple[str, str]] = frozenset()) -> pd.Dat
 def make_synthetic(edit: ColumnEdit | None = None,
                    invalid: frozenset[tuple[str, str]] = frozenset()) -> Synthetic:
     return Synthetic(from_visits(processed_visits(edit), key="synthetic"), inclusion_table(invalid))
+
+
+def make_synthetic_visits(visits: tuple[tuple[str, str, str], ...],
+                          invalid: frozenset[tuple[str, str]] = frozenset()) -> Synthetic:
+    """Like `make_synthetic` for any (participant_id, cohort, protocol) list, e.g. several protocols per participant
+    (Aim 2). Every visit has the same 270 exercise seconds; signals differ by list position, while sex and SMM are
+    those of the participant's position among the distinct participants (constant across its visits)."""
+    participant_number = {pid: n for n, pid in enumerate(dict.fromkeys(pid for pid, _, _ in visits))}
+
+    def visit_columns(number: int, pid: str) -> dict[str, np.ndarray]:
+        static = _columns(participant_number[pid])
+        return {**_columns(number), "sex": static["sex"], "SMM": static["SMM"]}
+
+    processed = [ProcessedVisit({"participant_id": pid, "cohort": cohort, "protocol": protocol,
+                                 "visit_id": f"{pid}_{protocol}", "source_visit": protocol}, visit_columns(number, pid))
+                 for number, (pid, cohort, protocol) in enumerate(visits)]
+    rows = [
+        {"participant_id": pid, "cohort": cohort, "protocol": protocol, "visit_id": f"{pid}_{protocol}",
+         "unit": "visit", "sensor_group": group, "valid": (f"{pid}_{protocol}", group) not in invalid,
+         "reason": "", "decided_by": "rule", "hr_source": ""}
+        for pid, cohort, protocol in visits
+        for group in SENSOR_GROUPS
+    ]
+    return Synthetic(from_visits(processed, key="synthetic_visits"), pd.DataFrame(rows, columns=OUTPUT_COLUMNS))

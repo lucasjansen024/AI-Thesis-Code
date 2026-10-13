@@ -4,9 +4,9 @@ This document describes the methodology **as the code implements it**: data, pre
 
 | | |
 |---|---|
-| **Last updated** | 11 Oct 2026 |
+| **Last updated** | 13 Oct 2026 |
 | **Code state** | branch `Gies`, HEAD `c812b04` + uncommitted `runs.py`/`main.py`/test changes (§10) |
-| **Stage** | Aim 1 runs complete (primary + training-setting sensitivity); training-settings pilot stopped without a choice; statistics not started; Aim 2 not approved |
+| **Stage** | Aim 1 runs complete (primary + training-setting sensitivity); training-settings pilot stopped without a choice; statistics not started; Aim 2 approved and implemented (Appendix B); 2a/2b/2c not yet run |
 | **Target journals** | *Journal of Sport and Health Science* (JSHS) or *Sports Medicine* (see `docs/paper/README.md` for what this means for the writing) |
 | **Terms** | as defined in [`CONTEXT.md`](../CONTEXT.md) (*cohort, participant, protocol, visit, unit, sensor group, shared mask, domain, configuration, fold, run, seed, trajectory* …) |
 | **Related** | Approved proposal: [`AIM1_IMPLEMENTATION_HANDOFF.md`](AIM1_IMPLEMENTATION_HANDOFF.md) · Requirement → module map: [`MAPPING.md`](MAPPING.md) |
@@ -40,7 +40,7 @@ This document describes the methodology **as the code implements it**: data, pre
 16. [Known limitations and caveats](#16-known-limitations-and-caveats)
 17. [Change log](#17-change-log)
 - [Appendix A: the 46 configurations](#appendix-a-the-46-configurations)
-- [Appendix B: Aim 2 placeholder](#appendix-b-aim-2-placeholder)
+- [Appendix B: Aim 2 design](#appendix-b-aim-2-design)
 
 ---
 
@@ -52,7 +52,7 @@ Two master's-thesis datasets are re-analysed with one harmonised pipeline. Earli
 - **Inputs:** ergometer work rate, wearable chest-strap signals (HR, V̇E, BR), NIRS muscle oxygenation (TSI or Hb-diff), anthropometrics (sex, skeletal muscle mass).
 - **Model:** one causal temporal convolutional network (TCN), fixed architecture and fixed training procedure for every run.
 - **Aim 1 (approved, implemented):** which input modalities, alone and combined, give the best continuous V̇O₂ prediction. 46 input configurations × leave-one-subject-out (LOSO) folds × 5 seeds, trained on the pooled dataset, with within-cohort runs as reference.
-- **Aim 2 (not approved):** generalisation to unseen intensities, protocols and cohorts. See [Appendix B](#appendix-b-aim-2-placeholder).
+- **Aim 2 (approved and implemented 13 Oct 2026):** generalisation to an unseen intensity (2a), protocol (2b) and cohort (2c), each compared with a model that did see the condition. Three configurations carried forward from Aim 1 (§12). See [Appendix B](#appendix-b-aim-2-design).
 
 **Data flow (code):**
 raw files → `inventory/` (file choice, synchronisation, per-signal metrics) → `inventory/build_inclusion.py` → committed `inventory/inclusion/inclusion.csv` (validity verdicts)
@@ -350,7 +350,7 @@ Context seconds need only be present, not in a valid unit: the warm-up end and a
   - V̇O₂ (target): z-score on the training **target** seconds.
   - Features: on the rows read by at least one training target's window (includes warm-up and context seconds; never crosses a visit; never test data). WR min–max; other continuous features z-score (population SD); sex unscaled.
   - Applied to the test participant unchanged; predictions inverse-transformed to mL·min⁻¹ before any metric.
-- Aim 2 hook: `Fold(test_participant, train_visits)` accepts an explicit training-visit list. **The `Subsample(fraction, seed)` hook described in `MAPPING.md` §6 and the spec does not exist in the code** (see §15).
+- Aim 2 hook: `Fold(test_participant, train_visits)` accepts an explicit training-visit list. The subsampling of the Aim 2 seen arm (Appendix B.4) is `aim2.subsampled_mask`: a per-fold copy of the target mask with the dropped training targets cleared, passed to the unchanged `train.train_fold`.
 
 ---
 
@@ -504,7 +504,18 @@ From the approved proposal; scripted after the runs on `visit_metrics_seedavg.cs
 - Linear mixed model: `log(RMSE) ~ configuration + protocol + cohort + (1 | participant)` (visit-level, seed-averaged RMSE). Random-effects structure to be justified (a co-author asked about random slopes on the Gies draft).
 - Contrasts of each configuration against `WR` alone, Holm-corrected.
 - Equivalence tests (TOST) against `WR`, margin **±25 mL·min⁻¹**, fixed before results are seen.
-- Rule for carrying configurations forward to Aim 2, written down before looking (e.g. lowest pooled mean RMSE; a simpler configuration within the equivalence margin is preferred).
+
+**Carry-forward rule for Aim 2 (decided 13 Oct 2026).** Three configurations go into every Aim 2 analysis (2a, 2b, 2c):
+- `WR` alone, always, as the reference.
+- Two strata, each ranked on `rmse_mean` in `A1_pooled`, group `all` (27 participants; mean over seeds and participants). The lowest in each stratum is carried forward:
+  - (a) configurations without `WR` (22) → `HR+VENT+TSI+ANTHRO` (361.9 mL·min⁻¹);
+  - (b) `WR` plus at least one of `HR`, `VENT` or NIRS, with `ANTHRO` optional (`WR+ANTHRO` is excluded because it adds no physiology) → `WR+VENT` (196.2 mL·min⁻¹).
+- There is no simplicity or margin tie-break. The earlier "simpler configuration within the equivalence margin" idea was never an adopted rule.
+- Robustness, not part of the rule: `WR+VENT` also wins on the mean of the within-cohort runs (203.0) and on the pooled model's equal-weighted cohort scores (196.3). On the within-cohort mean, the non-WR pick would be `HR+VENT+HBDIFF+ANTHRO` (320.0).
+
+Disclosure (for `02_methods.md`, verbatim):
+
+> Configurations for Aim 2 were selected after the Aim 1 runs had been completed and their descriptive results (mean RMSE per configuration) inspected, but before any Aim 2 model was trained and before any Aim 1 statistical test was run. Three configurations were carried forward, ranked on mean RMSE in the pooled leave-one-subject-out analysis (27 participants): work rate alone (`WR`) as the reference; the configuration without work rate with the lowest RMSE (`HR+VENT+TSI+ANTHRO`); and the configuration combining work rate with at least one physiological domain (HR, VENT or NIRS) with the lowest RMSE (`WR+VENT`). The selection used the same participants as Aim 2, so the absolute errors of the selected configurations may be slightly optimistic. The Aim 2 comparisons (seen vs unseen conditions) are made within each configuration.
 
 ---
 
@@ -547,11 +558,10 @@ Each was decided by the developer and is recorded in `MAPPING.md`. The paper mus
 
 | # | Item | Options / notes | Blocks |
 |---|---|---|---|
-| P2 | Statistics (§12) | random-effects structure; carry-forward rule; TOST margin confirm | paper results |
+| P2 | Statistics (§12) | random-effects structure; TOST margin confirm | paper results |
 | P4 | Tx3 = 40 mm | check OxySoft optode template or ask Artinis; or switch to `mean3` | — |
 | P7 | Details not in the repo: pre-test instructions for Gies (Lucas: no heavy exercise/alcohol 24 h, no caffeine that day, 2 h fasting); cart chest-strap model; occlusion protocol for Gies; ergometer and Artinis company cities | ask the cohort owners | Methods text |
 | P8 | Run `per_config` sensitivity runs? | optional | — |
-| P9 | `Subsample(fraction, seed)` hook (Aim 2a/2b) | documented in MAPPING/spec but missing in code; implement when Aim 2 is approved, or correct the docs | Aim 2 |
 | P10 | No TensorFlow ↔ PyTorch numerical check of the ported TCN | add one or state as limitation | — |
 
 ---
@@ -581,6 +591,8 @@ Each was decided by the developer and is recorded in `MAPPING.md`. The paper mus
 | 9 Oct 2026 | Document created from the code at `7bd3739`, `MAPPING.md`, the spec, the review and progress logs. Pilot running. |
 | 9 Oct 2026 | Target journals noted (JSHS or Sports Medicine). Participant characteristics computed (§2.1) from the inventory and the per-participant ramp sheets. Protocol levels verified against the xml files: Gies Hard low = GET (P5 closed). Intensity derivation, visit spacing and lab conditions added (§2.2). L14 Interval: wrong CPET profile confirmed by Lucas, age override sufficient (P3 closed). Target-second totals added (§4.4; P11 closed). Same-day visit and intensity limitations added. |
 | 11 Oct 2026 | Pilot stopped after 8 pooled splits without a choice (§9, outcome and partial results added). P1 closed: primary 5e-5 × 30 (proposal default), sensitivity 5e-4 × 1 runs added (§8, §10). All six A1 runs complete (§10 status and wall times). §14 pilot-decision row and §16 pilot caveat updated. |
+| 13 Oct 2026 | Aim 2 approved (supervisor meeting) and specified, not implemented: Appendix B rewritten from the placeholder (2a without the Ramp, 2b, 2c with a same-test-cohort reference; seen arm size-matched by random subsampling of training targets). Carry-forward rule and disclosure added to §12 (`WR`, `HR+VENT+TSI+ANTHRO`, `WR+VENT`); the "simpler within the margin" idea dropped. P9 closed: the subsampling is specified (Appendix B.4). It replaces the spec's `Subsample(fraction, seed)`, which `MAPPING.md` (`folds.py` row, T08 row) still wrongly lists as implemented; to be corrected with the Aim 2 rows there. §1 and §6 updated. |
+| 13 Oct 2026 | Aim 2 implemented (Appendix B status and code references): `pipeline/aim2.py`, `pipeline/aim2_outcome.py`, Aim 2 registry in `pipeline/runs.py`, `tests/test_aim2.py`; pytest passes, smoke run done. The outcome pairing also requires equal `n_s` per visit (B.6). |
 
 ---
 
@@ -600,13 +612,101 @@ In generation order (size, then canonical token order). Input dimension F in bra
 
 ---
 
-## Appendix B: Aim 2 placeholder
+## Appendix B: Aim 2 design
 
-Not approved. Fill in when it is. Proposed design (handoff §6):
+**Status:** approved 13 Oct 2026 (supervisor meeting) and implemented the same day, additive to the Aim 1 code: specs and registry in `pipeline/runs.py` (`LeftOutArm`, `CohortTransfer`, `A2A_ARMS`, `A2B_ARMS`, `A2C_TRANSFERS`, smoke specs), training in `pipeline/aim2.py`, the paired outcome in `pipeline/aim2_outcome.py`, tests in `tests/test_aim2.py`. Entry points in `main.py`. Every Aim 2 fold folder has the Aim 1 layout, so `evaluate(spec.run)` summarises it unchanged.
 
-- **2a, unseen intensity (Gies):** per target intensity, train with vs without it; the included set subsampled to the excluded set's size, fraction = (total − target)/total.
-- **2b, unseen protocol (Lucas):** the same across Ramp, PRBS, Interval, Step.
-- **2c, external cohort:** train on one cohort, test on the other; compare with that cohort's within-cohort LOSO from Aim 1 (`A1_gies`, `A1_lucas`). Same training procedure (§8).
-- **Supporting:** temporal structure of residuals (runs tests, run lengths) from saved predictions.
+### B.1 Questions
 
-Code status: explicit training-visit lists (`Fold.train_visits`), protocol labels on every prediction and generic `run_id`s exist. The seeded subsampling hook does not (P9).
+Each question compares a model that never saw a condition in training with one that did. Both are tested on the same seconds.
+
+- **2a, unseen intensity (Gies):** one PRBS intensity level (Easy, Medium or Hard) left out of training.
+- **2b, unseen protocol (Lucas):** one protocol (Ramp, PRBS, Interval or Step) left out of training. All four are left out in turn and reported together. The Ramp is not singled out as a separate analysis.
+- **2c, unseen cohort:** trained on one cohort and tested on the other, in both directions.
+
+### B.2 Common settings
+
+- **Configurations:** the three carried forward from Aim 1 (§12): `WR`, `HR+VENT+TSI+ANTHRO` and `WR+VENT`. They train as one packed job per fold (K = 15).
+- **Seeds:** 0–4, none selected.
+- **Training:** `A1_TRAINING` (5e-5 × 30) and the §8 procedure, unchanged.
+- **Data:** default `PrepSettings` and the shared mask, so every Aim 2 model is scored on exactly the seconds Aim 1 scored. The `A1_*` outputs therefore remain valid references.
+- Dropout draws belong to the packed job (§8). A K = 15 job therefore differs from the K = 230 Aim 1 job by seed-level noise only.
+
+### B.3 2a and 2b: unseen and seen arms
+
+For each left-out condition C, there is one fold per test participant who has a C visit. The other participants train it, in one of two arms:
+
+| Arm | Training data (other participants only) |
+|---|---|
+| **Unseen** | their included visits of every condition except C |
+| **Seen** | their included visits of all conditions, subsampled to exactly the unseen arm's number of training targets in that fold (B.4) |
+
+- **2a pool:** the Gies PRBS visits (Easy, Medium, Hard). The **Gies Ramp is never in training** in either arm, for two reasons: the three levels share identical PRBS timing, so 2a then tests the intensity level alone; and only 9 of 14 participants have a Ramp.
+- **2b pool:** all Lucas visits (Ramp, PRBS, Interval, Step).
+- Participants who lack C still train the folds of the others.
+- **Scoring:** only the test participant's C visit is scored. Their other visits are predicted but not used.
+
+| Study | C | Test participants | Pool target-seconds without C / with C | Approx. fraction |
+|---|---|---|---|---|
+| 2a | Easy | 12 | 47,978 / 71,008 | 0.68 |
+| 2a | Medium | 13 | 47,029 / 71,008 | 0.66 |
+| 2a | Hard | 13 | 47,009 / 71,008 | 0.66 |
+| 2b | Ramp | 13 | 72,388 / 80,449 | 0.90 |
+| 2b | PRBS | 13 | 56,354 / 80,449 | 0.70 |
+| 2b | Interval | 13 | 56,303 / 80,449 | 0.70 |
+| 2b | Step | 13 | 56,302 / 80,449 | 0.70 |
+
+The fractions above are over the whole cohort (`A1_pooled/summary/targets.csv`). The exact counts are computed per fold, without the test participant. G04 Hard and G07 Medium are partial visits (one repetition each) and are scored like any other C visit.
+
+### B.4 Subsampling of the seen arm
+
+- **Target:** n = the unseen arm's number of training targets in the same fold, under the shared mask. The fraction is therefore exact per fold and per C, and no seen arm is shared across conditions.
+- **Draw:** exactly n target seconds, uniformly at random without replacement from the seen arm's pool. The draw is not stratified by condition: with n ≈ 44–67 k, each condition's share deviates negligibly from its pool share.
+- **One draw per fold**, seeded from (run, fold) through `provenance.derive_seed`. It is shared by all configurations and seeds of that fold, so the seed SD does not include subsampling variation. Each fold gets its own draw.
+- **Scalers** are fit after subsampling, on the subsample (§6 rules: feature scalers on the rows the kept windows read, the V̇O₂ scaler on the kept targets).
+- **Windows are unchanged:** a kept target reads its full 187-s context, including seconds whose own targets were dropped.
+- **Caveat:** windows overlap at 1 Hz, so the seen arm still reads almost every input second of its pool. Size matching therefore equalises the number of training windows (and gradient steps per epoch), not the distinct input content. Contiguous-block subsampling was considered and not adopted (dev, 13 Oct). Revisit it if reviewers ask.
+
+### B.5 2c: unseen cohort
+
+- **Training:** one training job per direction. All included visits of all participants of cohort A (Gies including its Ramp) train the model, which is tested on every participant of cohort B. This needs a multi-participant test fold. Outputs stay one folder per test participant, as in Aim 1.
+- **Reference:** the same test cohort's within-cohort LOSO from Aim 1: `A1_lucas` for Gies → Lucas, `A1_gies` for Lucas → Gies. Same configurations, seeds and test seconds; nothing is retrained. The pooled model scored per cohort (`A1_pooled`, cohort groups) is a supplementary reference only.
+- **No size matching:**
+
+  | Direction | Cross-cohort training targets | Reference training targets per fold |
+  |---|---|---|
+  | Gies → Lucas | 76,933 | ≈ 74,300 |
+  | Lucas → Gies | 80,449 | ≈ 71,400 |
+
+  The cross-cohort model gets 4 % and 13 % more data. That bias works against finding a generalisation loss, so it is conservative. The sizes are reported.
+- **Test visits:** the primary result covers all of the test cohort's visits. The Ramp is the only protocol both cohorts share, so on the other protocols an unseen cohort and an unseen protocol are confounded. Report a per-protocol breakdown, with the Ramp as the cohort-only contrast, and state the confound.
+
+### B.6 Outcome
+
+- **Unit:** participant.
+- **Value:** the seed-averaged RMSE (§11.1, steps 1–3) on the C visit (2a/2b), or the mean over the participant's visits (2c).
+- **Comparison:** unseen − seen (2c: cross-cohort − within-cohort reference) in mL·min⁻¹, per C (or direction) × configuration. Reported as the mean with a 95 % t-CI across participants. Visits are paired on (configuration, visit, number of target seconds); any unpaired row stops the table (`aim2_outcome.paired_visits`).
+- No further inferential modelling (cf. P2).
+
+### B.7 Input scaling
+
+The scalers are unchanged from §6: WR min–max, sex unscaled, other features z-scored, all fitted on the fold's training rows. When the Ramp is left out in 2b, the test WR exceeds the training maximum and scales to > 1. That is the extrapolation case. 2a stays within the training range, because Easy and Hard both lie inside Medium's 25 W ↔ Δ30 % span.
+
+### B.8 Runs and compute
+
+| Runs | Fold jobs |
+|---|---|
+| `A2a_{easy,medium,hard}_{unseen,seen}` | (12 + 13 + 13) × 2 = 76 |
+| `A2b_{ramp,prbs,interval,step}_{unseen,seen}` | 13 × 4 × 2 = 104 |
+| `A2c_gies_to_lucas`, `A2c_lucas_to_gies` | 2 |
+
+### B.9 Supporting analyses
+
+The temporal structure of the residuals (runs tests, run lengths) and the error by exercise phase are computed from the saved predictions. The section is still to be written; the phase definitions are pending.
+
+### B.10 Changes from the handoff's Aim 2 sketch (handoff §6)
+
+- **2a:** the Ramp is excluded from training. The sketch did not exclude it.
+- **2c:** the sketch's "that cohort's within-cohort LOSO" is made explicit: the reference is the **test** cohort's, not the training cohort's. Otherwise the comparison mixes "trained elsewhere" with "this cohort is easier or harder to predict".
+- **Subsampling:** an exact count per fold as in the sketch, drawn once per fold. It is not stratified by protocol (`MAPPING.md` had described stratification).
+- **Configurations:** the sketch did not limit them. Aim 2 uses the three carried forward (§12).
