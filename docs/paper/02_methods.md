@@ -1,8 +1,9 @@
-# Methods (draft v0.2, 9 Oct 2026)
+# Methods (draft v0.3, 13 Oct 2026)
 
 > **Notes for the authors (delete before submission)**
-> - Describes the pipeline as implemented at commit `7bd3739`; the source of truth is `docs/METHODOLOGY.md`. When that file changes, update this one.
-> - Target journal: JSHS or Sports Medicine (`docs/paper/README.md`). This is the **long version**. Sections tagged **[main]** stay in the main text and will be shortened to ~1,500–2,000 words for JSHS's 5,000-word limit. Sections tagged **[supplement]** move to Supplementary Methods. Main-text display items are Table 1 and Figure 1 only; the other tables are supplementary (S1–S5), leaving room for results within JSHS's 6-item limit.
+> - Describes the pipeline as implemented at commit `00fd286` (Aim 2 and residual analyses added in v0.3); the source of truth is `docs/METHODOLOGY.md`. When that file changes, update this one.
+> - Target journal: JSHS or Sports Medicine (`docs/paper/README.md`). This is the **long version**. Sections tagged **[main]** stay in the main text and will be shortened to ~1,500–2,000 words for JSHS's 5,000-word limit. Sections tagged **[supplement]** move to Supplementary Methods. Main-text display items are Table 1 and Figure 1 only; the other tables are supplementary (S1–S7), leaving room for results within JSHS's 6-item limit.
+> - Inferential statistics (mixed model, Holm-corrected contrasts, equivalence tests) are deferred, not dropped (`METHODOLOGY.md` §12). v0.2 §2.13 holds their draft text.
 > - **[Bold square brackets]** = information not found in the repository, or a decision still pending (`METHODOLOGY.md` §15).
 > - Citations: `[Author Year]`, listed in `docs/paper/references.md`; convert to the journal's numbered style later.
 > - Terms: *visit* (one protocol performed by one participant); *repetition* (one of the two identical PRBS sequences in a visit); *segment* (the unit of quality assessment: a repetition, or the whole exercise phase); *domain* (input group); *configuration* (set of domains).
@@ -43,7 +44,7 @@ Every visit began with 2 min of quiet seated rest on the ergometer with all sens
 
 ## 2.3 Exercise protocols [main; Table S1 supplement]
 
-Work-rate profiles are shown in Figure 1A and timelines in Table S1. **[Figure 1: (A) work-rate profiles of the seven protocols for one participant per cohort; (B) schematic of the analysis pipeline: sensors → preprocessing → quality control and shared mask → 187-s input window → TCN → leave-one-subject-out evaluation.]**
+Work-rate profiles are shown in Figure 1A and timelines in Table S1. **[Figure 1: (A) work-rate profiles of the seven protocols for one participant per cohort; (B) training and test data of each analysis: the Aim 1 leave-one-subject-out analyses and the Aim 2 left-out conditions and cohort transfers (§2.12).]**
 
 **Ramp-incremental test (both cohorts).** After 2 min of rest, participants cycled for 4 min at 30 W. Work rate then increased by 20, 25, 30 or 35 W·min⁻¹ until task failure. The ramp rate was chosen per participant from body size and self-reported activity level, aiming for 8–12 min of ramp exercise. Actual ramp durations were 11.5 ± 1.3 min in cohort G and 10.4 ± 1.9 min in cohort L. Task failure was defined as a cadence below 60 rpm despite strong verbal encouragement **[cohort L: for more than 5 s; confirm cohort G]**.
 
@@ -93,7 +94,7 @@ Two cohort G visits were repeated after a partial failure, and only the complete
 
 ## 2.5 Data processing [main: short summary; supplement: §2.5.1–2.5.8 in full]
 
-Both cohorts were processed from the raw exports with one pipeline (Python; §2.15). No processed data or results from the original studies were reused.
+Both cohorts were processed from the raw exports with one pipeline (Python; §2.17). No processed data or results from the original studies were reused.
 
 ### 2.5.1 File selection and synchronisation
 
@@ -217,7 +218,7 @@ All combinations were evaluated. WR, HR, VENT and at most one NIRS variable give
 
 ## 2.8 Model [main]
 
-We used a causal temporal convolutional network (TCN) [Bai 2018]. Its architecture was introduced for V̇O₂ prediction by Amelard et al. [Amelard 2021] and used in both preliminary studies (Figure 1B). The model maps the inputs of the preceding 187 s (seconds t − 187 to t − 1) to V̇O₂ at second t. Because the input at t itself is not used, the model is causal and could run in real time.
+We used a causal temporal convolutional network (TCN) [Bai 2018]. Its architecture was introduced for V̇O₂ prediction by Amelard et al. [Amelard 2021] and used in both preliminary studies. The model maps the inputs of the preceding 187 s (seconds t − 187 to t − 1) to V̇O₂ at second t. Because the input at t itself is not used, the model is causal and could run in real time.
 
 The network has five causal dilated one-dimensional convolutions (kernel size 7, 16 filters, dilation factors 1, 2, 4, 8 and 16), arranged in two residual blocks (dilations 1–2–4 and 8–16).
 - Each convolution is followed by layer normalisation [Ba 2016], a ReLU activation and dropout (rate 0.2).
@@ -236,7 +237,7 @@ One training procedure was fixed before the main analyses and applied identicall
 |---|---|
 | Loss | mean squared error on standardised V̇O₂ |
 | Optimiser | Adam [Kingma 2015], β₁ = 0.9, β₂ = 0.999, ε = 10⁻⁷, constant learning rate |
-| Learning rate × epochs | 5 × 10⁻⁵ × 30 (sensitivity analysis: 5 × 10⁻⁴ × 1; §2.10, §2.14) |
+| Learning rate × epochs | 5 × 10⁻⁵ × 30 (sensitivity analysis: 5 × 10⁻⁴ × 1; §2.10, §2.16) |
 | Batch size | 32 |
 | Sample order | reshuffled every epoch |
 | Validation set, early stopping | none |
@@ -258,7 +259,7 @@ Input scalers were fitted on the seconds read by the training windows, and the t
 
 ## 2.10 Training settings [main]
 
-The learning rate (5 × 10⁻⁵) and number of epochs (30) were those of one preliminary study and the default of the analysis plan, fixed before any result of the main analyses was available. A planned pilot comparing cheaper settings was stopped early, before any setting was chosen; the default was therefore retained. As a sensitivity analysis (§2.14), all analyses were repeated with the setting of the other preliminary study (5 × 10⁻⁴ × 1 epoch).
+The learning rate (5 × 10⁻⁵) and number of epochs (30) were those of one preliminary study and the default of the analysis plan, fixed before any result of the main analyses was available. A planned pilot comparing cheaper settings was stopped early, before any setting was chosen; the default was therefore retained. As a sensitivity analysis (§2.16), all analyses were repeated with the setting of the other preliminary study (5 × 10⁻⁴ × 1 epoch).
 
 ## 2.11 Cross-validation and analyses [main]
 
@@ -268,9 +269,39 @@ All models were evaluated with leave-one-subject-out cross-validation. In each f
 - **Within cohort G**: 14 folds of 13 training participants;
 - **Within cohort L**: 13 folds of 12 training participants.
 
-The within-cohort analyses provide reference values for the pooled analysis and for later between-cohort comparisons. Training-set sizes therefore differ by design; they are reported with the results. Each analysis comprised 46 configurations × 5 seeds per fold, for 12,420 trained models in total.
+The within-cohort analyses provide reference values for the pooled analysis and for the between-cohort comparison of Aim 2c (§2.12). Training-set sizes therefore differ by design; they are reported with the results. Each analysis comprised 46 configurations × 5 seeds per fold, for 12,420 trained models in total.
 
-## 2.12 Performance metrics [main]
+## 2.12 Generalisation analyses (Aim 2) [main; subsampling and Table S6 supplement]
+
+Aim 2 tested whether accuracy is maintained when a model meets a condition absent from its training data. Each analysis compared a model that had not seen the condition in training (*unseen*) with one that had (*seen*), both tested on the same seconds (Figure 1B). Architecture, training procedure, seeds and the shared mask were those of Aim 1 (§2.6–2.10), so every Aim 2 model was scored on seconds that Aim 1 also scored.
+
+**Configurations.** Configurations for Aim 2 were selected after the Aim 1 runs had been completed and their descriptive results (mean RMSE per configuration) inspected, but before any Aim 2 model was trained and before any Aim 1 statistical test was run. Three configurations were carried forward, ranked on mean RMSE in the pooled leave-one-subject-out analysis (27 participants): work rate alone (`WR`) as the reference; the configuration without work rate with the lowest RMSE (`HR+VENT+TSI+ANTHRO`); and the configuration combining work rate with at least one physiological domain (HR, VENT or NIRS) with the lowest RMSE (`WR+VENT`). The selection used the same participants as Aim 2, so the absolute errors of the selected configurations may be slightly optimistic. The Aim 2 comparisons (seen vs unseen conditions) are made within each configuration.
+
+**Unseen intensity (Aim 2a) and unseen protocol (Aim 2b).** In Aim 2a (cohort G), the left-out condition was one PRBS intensity combination (Easy, Medium or Hard). Only the PRBS visits were used, never the ramp tests, so that the three conditions shared an identical PRBS timing and differed in intensity alone. In Aim 2b (cohort L), each of the four protocols was left out in turn. For each left-out condition, there was one leave-one-subject-out fold per participant who had performed it (Table S6). The unseen model trained on the other participants' visits of all remaining conditions. The seen model trained on their visits of all conditions, randomly subsampled to exactly the unseen model's number of training targets in that fold, so that the two models differed in whether the condition was present, not in training-set size. Only the test participant's visit of the left-out condition was scored.
+
+*Subsampling [supplement].* Target seconds were drawn uniformly at random without replacement, once per fold, from a seed derived from the analysis and the fold, and the same subsample served every configuration and seed. Scalers were fitted on the subsample. Each kept target retained its full 187-s input window, including seconds whose own targets were dropped. Because windows overlap at 1 Hz, size matching equalises the number of training examples, not the number of distinct input seconds.
+
+**Unseen cohort (Aim 2c).** One model per direction was trained on all included visits of one cohort (cohort G including its ramp tests) and tested on every participant of the other cohort. The reference was the within-cohort analysis of the **test** cohort (§2.11), with the same configurations, seeds and test seconds. The comparison therefore isolates training on another cohort from differences in how predictable the two cohorts are. Training sets were not size-matched: the cross-cohort models trained on 76,933 (G → L) and 80,449 (L → G) target seconds, 4 % and 13 % more than the reference folds (≈ 74,300 and ≈ 71,400). This favours the cross-cohort model, so a loss of accuracy would, if anything, be underestimated. The ramp is the only protocol both cohorts performed; on the other protocols, an unseen cohort is confounded with an unseen protocol. Results are therefore reported for all visits (primary) and per protocol, with the ramp as the contrast in which only the cohort differs. **[supplement:]** The pooled model scored per cohort serves as an additional reference.
+
+**Input scaling.** Scalers were fitted on each fold's training data as in §2.9. When the ramp was left out (Aim 2b), test work rates above the training maximum scaled above 1, so the model had to extrapolate. In Aim 2a, the training conditions always spanned the full 25 W to Δ30 % range of the left-out level.
+
+**Outcome.** For each participant, the seed-averaged RMSE (§2.13) was computed on the left-out visit (Aims 2a, 2b) or averaged over the participant's visits (Aim 2c). The difference unseen − seen (Aim 2c: cross-cohort − within-cohort reference), in mL·min⁻¹, was summarised per condition and configuration as the mean with a 95 % confidence interval across participants (§2.15). Both sides of each difference were scored on identical target seconds.
+
+**Table S6.** Aim 2 left-out conditions.
+
+| Analysis | Left-out condition | Test participants | Target seconds in the cohort without / with the condition | Approximate seen-model fraction |
+|---|---|---|---|---|
+| 2a (cohort G, PRBS only) | Easy | 12 | 47,978 / 71,008 | 0.68 |
+| | Medium | 13 | 47,029 / 71,008 | 0.66 |
+| | Hard | 13 | 47,009 / 71,008 | 0.66 |
+| 2b (cohort L) | Ramp | 13 | 72,388 / 80,449 | 0.90 |
+| | PRBS | 13 | 56,354 / 80,449 | 0.70 |
+| | Interval | 13 | 56,303 / 80,449 | 0.70 |
+| | Step | 13 | 56,302 / 80,449 | 0.70 |
+
+Exact training sizes were computed per fold, without the test participant. Two test visits (one Medium, one Hard) contain one PRBS repetition only and were scored like the others.
+
+## 2.13 Performance metrics [main]
 
 All metrics were computed in mL·min⁻¹ on the test participant's target seconds.
 
@@ -286,24 +317,44 @@ Seed-averaged metrics are the mean of the five models' metrics. They estimate th
 
 **Breakdowns.** All metrics are reported for all data, per cohort and per protocol.
 
-## 2.13 Statistical analysis [main]
+## 2.14 Residual analyses [main: first paragraph; rest and Table S7 supplement]
 
-**[Planned; to be finalised before the results are inspected.]** Visit-level, seed-averaged RMSE will be log-transformed and analysed with a linear mixed model with configuration, protocol and cohort as fixed effects and participant as a random intercept **[justify the random-effects structure; consider random slopes]**. Each configuration will be compared with work rate alone (`WR`), with Holm correction for multiple comparisons. Equivalence with `WR` will be tested with two one-sided tests against a margin of ±25 mL·min⁻¹, fixed in advance. **[Rule for selecting configurations for further analyses, e.g. the lowest pooled RMSE unless a simpler configuration is within the equivalence margin.]** **[Software, e.g. R lme4/emmeans or Python statsmodels; α = 0.05.]**
+To describe when and how the models err, the residuals (predicted − measured V̇O₂) of the pooled analysis were examined for the three carried-forward configurations (§2.12) in all seven protocols, using the mean of the five seeds' predictions at each second. Their temporal structure was summarised per visit as the mean length of runs of same-signed residuals (target seconds ÷ number of runs) and the share of seconds in runs longer than 60 s. The bias, and each phase's share of the squared error relative to its share of time, were computed in eight exercise phases defined from the prescribed work rate (Table S7).
 
-## 2.14 Sensitivity analyses [supplement]
+Phases were labelled from the work-rate input itself, not from separate event marks. The ramp phases used each participant's GET power (from the protocol files, §2.3) and task failure. The ramp crossing was the first second at which the ramp work rate reached the GET power, without a shift for the V̇O₂ response delay; a ±120-s window around it stayed clear of the warm-up and of the ramp-end window in all 22 ramp tests, whereas a ±180-s window and a window shifted by the mean response time did not. In the Lucas PRBS and interval visits, the change from the warm-up at 80 % GET to 25 W at the start of the exercise phase counted as a decrease **[final treatment pending, `METHODOLOGY.md` §11.6]**. Seconds outside all windows formed a remaining category, so that the error shares sum to 1. For completeness, a Wald–Wolfowitz runs test was computed per protocol and configuration, with runs counted within visits and summed and zero residuals dropped. At 1 Hz, autocorrelated residuals make this test significant by construction, so it was not used for inference.
+
+**Table S7.** Exercise phases for the residual analyses. Windows are disjoint.
+
+| # | Phase | Protocols | Window |
+|---|---|---|---|
+| 1 | PRBS switch up | Easy, Medium, Hard, PRBS | 0–30 s after the switch (sensitivity analysis: until the next switch) |
+| 2 | PRBS switch down | as 1 | as 1 |
+| 3 | Increase | Interval, Step | 0–180 s after the change, ending at the next change at the latest |
+| 4 | Decrease | Interval, Step | as 3 |
+| 5 | Sustained below GET | Step | more than 180 s after the last change |
+| 6 | Sustained above GET | Step | 180–360 s after the increase to Δ30 % |
+| 7 | Ramp through GET | Ramp | ±120 s around the second at which work rate reached the GET power |
+| 8 | Ramp end | Ramp | last 120 s before task failure |
+
+## 2.15 Statistical analysis [main]
+
+All results are reported descriptively, with the participant as the unit of analysis. Performance metrics and run lengths are given as the mean ± SD across participants (§2.13, §2.14). The Aim 2 differences (§2.12) and the phase biases (§2.14) are given as the mean with a 95 % confidence interval based on the t distribution. No hypothesis tests were performed.
+
+## 2.16 Sensitivity analyses [supplement]
 
 **Training setting.** All three analyses (pooled and within each cohort) were repeated with a learning rate of 5 × 10⁻⁴ for one epoch (§2.10), with everything else unchanged: the same folds, configurations, seeds, scaling and evaluation. This shows whether the conclusions depend on the amount of training. The pilot (five settings, five configurations, leave-one-subject-out) was stopped after 8 of 54 planned splits because the settings differed by less than the variation between seeds; the sensitivity setting was chosen after these partial results, whose held-out participants were later test participants.
 
 **Shared mask. [Optional; decide whether to run and report.]** To test whether the shared mask affected the conclusions, all analyses can be repeated with a per-configuration mask. Each configuration then uses every segment valid for the target and its own input groups. Configurations without NIRS or chest-strap inputs can then use visits excluded from the primary analysis; for example, `WR` alone uses all 55 cohort G visits.
 
-## 2.15 Software, hardware and reproducibility [main: 2 sentences; rest supplement]
+## 2.17 Software, hardware and reproducibility [main: 2 sentences; rest supplement]
 
-Data processing and model training used Python 3.11 with PyTorch 2.14, NumPy 2.4, pandas 3.0 and pingouin 0.7 [Vallat 2018], on a single desktop GPU (Intel Arc B580). Each trained fold stores the code version, all settings, the data-quality table's checksum, the scaler parameters, per-epoch training losses and the trained weights. An automated test suite verified that:
+Data processing and model training used Python 3.11 with PyTorch 2.14, NumPy 2.4, pandas 3.0, SciPy 1.17 and pingouin 0.7 [Vallat 2018], on a single desktop GPU (Intel Arc B580). Each trained fold stores the code version, all settings, the data-quality table's checksum, the scaler parameters, per-epoch training losses and the trained weights. An automated test suite verified that:
 - no test-participant data entered scaling or training;
 - each model's output at second t depends only on inputs before t;
 - all configurations in a fold were evaluated on identical seconds;
 - seeds reproduce exactly;
-- the breath-by-breath cleaning reproduces the original implementation.
+- the breath-by-breath cleaning reproduces the original implementation;
+- the seen and unseen models of each Aim 2 fold trained on the same number of targets, and both sides of each Aim 2 difference were scored on identical seconds.
 
 **[Code availability: repository URL and commit.]**
 

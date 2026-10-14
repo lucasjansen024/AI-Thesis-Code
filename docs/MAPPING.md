@@ -43,10 +43,12 @@ This file maps every requirement in [`AIM1_IMPLEMENTATION_HANDOFF.md`](AIM1_IMPL
 | `cache.py` | `outputs/cache/processed/<key>/visits.npz` + `meta.json`. Key = hash of `PrepSettings` + source hash of `pipeline/prepare/` and `inventory/`. `rebuild=True` forces a rebuild. |
 | `inclusion.py` | Reads `inventory/inclusion/inclusion.csv` with a schema check; builds the target mask (shared or `per_config`). |
 | `domains.py` | `Domain(StrEnum)`: WR, HR, VENT, NIRS, ANTHRO; NIRS variables TSI/HBDIFF; feature columns per domain; configuration generator and IDs. |
-| `folds.py` | `Fold(test_participant, train_visits)`, LOSO generation, `Subsample(fraction, seed)`, fold scalers, target indices. In memory only. |
+| `folds.py` | `Fold(test_participant, train_visits)`, LOSO generation, fold scalers, target indices. In memory only. (The planned `Subsample(fraction, seed)` was never built; the Aim 2 subsample is `aim2.subsampled_mask`, §6.) |
 | `TCN.py` | Packed §2.3 TCN (grouped convs, per-branch LayerNorm, channel masks, last-only forward) and extraction into standalone per-configuration TCNs. |
 | `train.py` | One job per (fold, identical-mask group): seeds, on-device window gather, checkpoint, `.tmp` → final rename, resume. |
-| `runs.py` | Frozen `Run` dataclasses (`A1_pooled`, `A1_gies`, `A1_lucas`, `per_config` variants, `_lr5e-4_ep1` sensitivity variants, `SMOKE`), pilot splits, the training settings as literals. |
+| `runs.py` | Frozen `Run` dataclasses (`A1_pooled`, `A1_gies`, `A1_lucas`, `per_config` variants, `_lr5e-4_ep1` sensitivity variants, `SMOKE`), pilot splits, the training settings as literals. Aim 2 registry appended (§6). |
+| `aim2.py` | Aim 2 training: left-out folds, the seen arm's subsampled mask, cohort transfer (§6). |
+| `aim2_outcome.py` | Aim 2 paired outcome table (§6). |
 | `pilot.py` | Pilot trajectories with validation logging; `decide()`. |
 | `metrics.py` | Per-visit metrics, `rm_corr`, Pearson r, repeated-measures Bland–Altman, VO₂peak. |
 | `evaluate.py` | `evaluate(run)`: seed aggregation, `summary/` tables. |
@@ -239,7 +241,7 @@ This file maps every requirement in [`AIM1_IMPLEMENTATION_HANDOFF.md`](AIM1_IMPL
 | Seeds | Same tiny job on the same device is bit-identical; different seeds give different weights | — | synthetic, XPU | T09 |
 | Inventory | Snapshot: `inclusion.csv` yields exactly the frozen list of included units (Gies 47 of 55, Lucas 52 of 52). Differences from §2.8 are explained in §8 below | — | committed CSV | T13 |
 
-**Other tests:** inclusion CSV schema; missing-source verdicts agree with the processed presence flags (real); G07 Medium rep 2 first target `t = 1290` with context 1103–1289 (real); packed ↔ standalone and last-only parity (XPU); §2.7 cleaning matches legacy (real); predictions columns = §3.3; `evaluate` raises on a missing fold; rm-BA port (MS_b > MS_w matches legacy; MS_b < MS_w gives σ² = MS_w); `rm_corr` matches legacy; seed-averaged ≠ ensemble RMSE; `Subsample` keeps the fraction per protocol; cache key changes when settings or source change; resume skips a finished fold and wipes a leftover `.tmp`; `decide()` on hand-built logs (qualify rule, A/B tie, fallback to R).
+**Other tests:** inclusion CSV schema; missing-source verdicts agree with the processed presence flags (real); G07 Medium rep 2 first target `t = 1290` with context 1103–1289 (real); packed ↔ standalone and last-only parity (XPU); §2.7 cleaning matches legacy (real); predictions columns = §3.3; `evaluate` raises on a missing fold; rm-BA port (MS_b > MS_w matches legacy; MS_b < MS_w gives σ² = MS_w); `rm_corr` matches legacy; seed-averaged ≠ ensemble RMSE; the Aim 2 tests in `tests/test_aim2.py` (§6); cache key changes when settings or source change; resume skips a finished fold and wipes a leftover `.tmp`; `decide()` on hand-built logs (qualify rule, A/B tie, fallback to R).
 
 **Smoke run checklist** (after `run(SMOKE)` + `evaluate(SMOKE)`):
 1. Both fold folders and `summary/` exist; no `.tmp` left.
@@ -256,10 +258,23 @@ This file maps every requirement in [`AIM1_IMPLEMENTATION_HANDOFF.md`](AIM1_IMPL
 
 | Requirement | Lands in | Decided in | Status | Note |
 |---|---|---|---|---|
-| Training set as an explicit list of (participant, visit) pairs + optional seeded subsample fraction | `folds.Fold(test_participant, train_visits: frozenset[visit_id])`, `folds.Subsample(fraction, seed)` | T08 | as-is | `Subsample` keeps the fraction of target seconds **within each protocol**. Implemented and tested, unused in Aim 1. |
+| Training set as an explicit list of (participant, visit) pairs + optional seeded subsample fraction | `folds.Fold(test_participant, train_visits: frozenset[visit_id])`; subsample: `aim2.subsampled_mask` | T08; METHODOLOGY B.4 | as-is | The planned `folds.Subsample(fraction, seed)`, stratified by protocol, was never built (corrected 13 Oct 2026). Aim 2 instead copies the shared mask per fold and keeps exactly the unseen arm's number of training targets, drawn uniformly (not stratified) and seeded from (run, fold); `fit.py`/`train.py` are unchanged. |
 | Protocol label on every saved prediction | `predictions.parquet` | T10 | as-is | |
 | Generic `run_id` | `runs.Run` | T08 | as-is | |
 | GRU kept, not run | legacy `src2_training_ready/models/` | — | as-is | `TCN.py` is named per model so a GRU module can sit beside it later. |
+
+**Aim 2 implementation (13 Oct 2026; METHODOLOGY Appendix B).** Additive: `train.py`, `folds.py`, `fit.py` and `evaluate.py` are unchanged, and every Aim 2 fold folder has the Aim 1 layout, so `evaluate(spec.run)` summarises it.
+
+| Requirement | Lands in | Decided in | Status | Note |
+|---|---|---|---|---|
+| Carried-forward configurations | `runs.A2_CONFIGURATIONS` | METHODOLOGY §12 | addition | `WR`, `HR+VENT+TSI+ANTHRO`, `WR+VENT`; one packed job per fold (K = 15). |
+| 2a/2b unseen and seen arms | `runs.LeftOutArm`, `runs.A2A_ARMS` (6), `runs.A2B_ARMS` (8); `aim2.left_out_folds`, `aim2.run_left_out` | B.3 | addition | One fold per test participant with the left-out condition; test participants hard-coded and checked by `aim2.check_test_participants` and a real-data test. |
+| Seen-arm subsample | `aim2.subsampled_mask` | B.4 | addition | See the row above; the scalers are fit on the subsample because `train.train_fold` receives the subsampled mask. |
+| 2c cohort transfer | `runs.CohortTransfer`, `runs.A2C_TRANSFERS` (2, with their A1 references); `aim2.run_transfer`, `aim2.train_transfer` | B.5 | addition | One packed training per direction on a multi-participant `ValidationFold`; one folder per test participant; a partial set raises `PartialTransferError`. |
+| Paired outcome | `aim2_outcome.write_outcome` → `outputs/aim2/{participants,summary}.csv` | B.6 | addition | Unseen − seen per participant, mean with 95 % t-CI; visits paired on (configuration, visit, `n_s`), any unpaired row raises `UnpairedVisitsError`. |
+| Smoke specs | `runs.A2_SMOKE_ARMS`, `runs.A2_SMOKE_TRANSFER` | — | addition | 3 epochs, seed 0. |
+| Entry points | `main.py` Aim 2 block (toggled by commenting) | — | addition | |
+| Tests | `tests/test_aim2.py` (16), `tests/synthetic.make_synthetic_visits` | — | addition | Equal seen/unseen training sizes, left-out folds, transfer folders, outcome pairing and CI, registry. |
 
 ---
 

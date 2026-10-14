@@ -24,6 +24,7 @@ PAPER = "#ffffff"
 
 MM_PER_INCH = 25.4
 DOUBLE_COLUMN_MM = 190  # Elsevier full page width
+SINGLE_COLUMN_MM = 90  # Elsevier single column
 FONT_SIZE_PT = 7
 TITLE_SIZE_PT = 8
 PANEL_LABEL_SIZE_PT = 10

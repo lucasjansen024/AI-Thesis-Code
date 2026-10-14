@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import logging
 
+from figures.aim1_dot_plot import write_aim1_dot_plot
+from figures.aim1_key_configurations import write_aim1_key_configurations
 from figures.study_design import write_study_design
 from figures.table1 import write_table1
 from inventory.__main__ import main as inventory_main
@@ -85,6 +87,8 @@ if __name__ == "__main__":
     # design figure also needs A1_pooled's cache:
     # write_table1()
     # write_study_design()
+    # write_aim1_dot_plot()  # reads A1_pooled, A1_gies and A1_lucas summary.csv
+    # write_aim1_key_configurations()
 
     # Training-settings pilot, LOSO (54 splits x 3 trajectories, ~27 h) → outputs/pilot/<split>/<trajectory>/.
     # Stopped 9 Oct 2026 after pooled G01, G03-G09 (dev): replaced by the sensitivity runs above.
