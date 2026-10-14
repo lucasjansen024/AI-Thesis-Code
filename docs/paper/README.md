@@ -4,6 +4,7 @@
 |---|---|
 | `01_introduction.md` | Introduction draft |
 | `02_methods.md` | Methods draft (full version; main-text and supplement split marked) |
+| `03_results.md` | Results draft v0.1: Aim 1 in full, Aim 2 **interim** (2b Step pending); open points for co-authors at the end |
 | `references.md` | Working reference list with verification status |
 
 Source of truth for every methodological fact: [`../METHODOLOGY.md`](../METHODOLOGY.md). Update that first, then the drafts.

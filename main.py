@@ -5,6 +5,9 @@ import logging
 
 from figures.aim1_dot_plot import write_aim1_dot_plot
 from figures.aim1_key_configurations import write_aim1_key_configurations
+from figures.aim2_generalisation import write_aim2_generalisation
+from figures.draft_docx import write_draft_docx
+from figures.style import PAPER_ROOT
 from figures.study_design import write_study_design
 from figures.table1 import write_table1
 from inventory.__main__ import main as inventory_main
@@ -74,11 +77,14 @@ if __name__ == "__main__":
     #     run_transfer(transfer)
     #     evaluate(transfer.run)
     # write_outcome(transfers=A2C_TRANSFERS)
-    # 2a (76 fold jobs) and 2b (104 fold jobs), after the map:
-    for arm in (*A2A_ARMS, *A2B_ARMS):
-        run_left_out(arm)
-        evaluate(arm.run)
-    write_outcome(A2A_ARMS + A2B_ARMS, A2C_TRANSFERS)
+    # 2a (76 fold jobs) and 2b (104 fold jobs); resumable per fold (uncomment to resume after a stop):
+    # for arm in (*A2A_ARMS, *A2B_ARMS):
+    #     run_left_out(arm)
+    #     evaluate(arm.run)
+    # write_outcome(A2A_ARMS + A2B_ARMS, A2C_TRANSFERS)
+    # Interim outcome while 2b Step still trains (arms that are evaluated) → outputs/aim2/interim/:
+    # interim_arms = tuple(arm for arm in A2A_ARMS + A2B_ARMS if arm.left_out != "Step")
+    # write_outcome(interim_arms, A2C_TRANSFERS, out_dir=OUTCOME_ROOT / "interim")
 
     # Residual analyses (METHODOLOGY §11.6) → outputs/residuals/<run_id>/; needs the run evaluated and its cache:
     # write_residuals()  # A1_pooled x the three carry-forward configurations
@@ -89,6 +95,14 @@ if __name__ == "__main__":
     # write_study_design()
     # write_aim1_dot_plot()  # reads A1_pooled, A1_gies and A1_lucas summary.csv
     # write_aim1_key_configurations()
+    # write_aim2_generalisation(OUTCOME_ROOT / "smoke" / "summary.csv", out_dir=PAPER_ROOT / "smoke")  # smoke check
+    # write_aim2_generalisation()  # reads outputs/aim2/summary.csv; skips conditions it does not hold yet
+    # write_aim2_generalisation(OUTCOME_ROOT / "interim" / "summary.csv", out_dir=PAPER_ROOT / "interim")
+
+    # Word draft for co-authors (intro, methods, results, figures, references) → outputs/paper/share/;
+    # needs pandoc (or pip install pypandoc_binary). Final: write_draft_docx() once
+    # outputs/paper/aim2_generalisation.png holds 2b Step.
+    write_draft_docx(PAPER_ROOT / "interim" / "aim2_generalisation.png", is_interim=True)
 
     # Training-settings pilot, LOSO (54 splits x 3 trajectories, ~27 h) → outputs/pilot/<split>/<trajectory>/.
     # Stopped 9 Oct 2026 after pooled G01, G03-G09 (dev): replaced by the sensitivity runs above.

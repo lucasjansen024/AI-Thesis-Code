@@ -731,7 +731,7 @@ The fractions above are over the whole cohort (`A1_pooled/summary/targets.csv`).
 ### B.4 Subsampling of the seen arm
 
 - **Target:** n = the unseen arm's number of training targets in the same fold, under the shared mask. The fraction is therefore exact per fold and per C, and no seen arm is shared across conditions.
-- **Draw:** exactly n target seconds, uniformly at random without replacement from the seen arm's pool. The draw is not stratified by condition: with n ≈ 44–67 k, each condition's share deviates negligibly from its pool share.
+- **Draw:** exactly n target seconds, uniformly at random without replacement from the seen arm's pool. The draw is not stratified by condition: with n ≈ 43–67 k, each condition's share deviates negligibly from its pool share.
 - **One draw per fold**, seeded from (run, fold) through `provenance.derive_seed`. It is shared by all configurations and seeds of that fold, so the seed SD does not include subsampling variation. Each fold gets its own draw.
 - **Scalers** are fit after subsampling, on the subsample (§6 rules: feature scalers on the rows the kept windows read, the V̇O₂ scaler on the kept targets).
 - **Windows are unchanged:** a kept target reads its full 187-s context, including seconds whose own targets were dropped.
